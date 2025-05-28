@@ -1,0 +1,31 @@
+{
+  "name": "codacy-cloud-cli",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "fetch-api": "curl https://artifacts.codacy.com/api/codacy-api/42.0.0/apiv3.yaml -o ./api-v3/api-swagger.yaml --create-dirs",
+    "generate-api": "rm -rf ./src/api/client && openapi --input ./api-v3/api-swagger.yaml --output ./src/api/client --useUnionTypes --indent 2 --client fetch",
+    "update-api": "npm run fetch-api && npm run generate-api",
+    "start": "npx ts-node src/index.ts",
+    "build": "npx tsc",
+    "start:dist": "node dist/index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "ansis": "4.0.0",
+    "cli-table3": "^0.6.3",
+    "commander": "14.0.0",
+    "dayjs": "^1.11.10",
+    "ora": "7.0.1"
+  },
+  "devDependencies": {
+    "@codacy/openapi-typescript-codegen": "0.0.8",
+    "@types/commander": "2.12.0",
+    "@types/node": "22.15.21",
+    "typescript": "5.8.3"
+  }
+}

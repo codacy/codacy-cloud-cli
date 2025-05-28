@@ -1,0 +1,8 @@
+# Ignore node modules
+node_modules
+
+#Ignore cursor AI rules
+.cursor/rules/codacy.mdc
+
+# Ignore auto generated api client
+src/api/client
