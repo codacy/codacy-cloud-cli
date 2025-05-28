@@ -6,3 +6,6 @@ node_modules
 
 # Ignore auto generated api client
 src/api/client
+
+# Ignore compiled output
+dist/
