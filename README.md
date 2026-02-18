@@ -87,6 +87,29 @@ Displays a multi-section dashboard:
 - **Open Pull Requests** -- status, issues, coverage, complexity, duplication deltas
 - **Issues Overview** -- totals by category, severity, and language
 
+#### `pull-request <provider> <organization> <repository> <prNumber>`
+
+Show details, analysis status, issues, and changed files for a specific pull request.
+
+```bash
+codacy-cloud-cli pull-request gh my-org my-repo 42
+codacy-cloud-cli pull-request gh my-org my-repo 42 --output json
+```
+
+| Argument | Description |
+|---|---|
+| `provider` | Git provider: `gh` (GitHub), `gl` (GitLab), or `bb` (Bitbucket) |
+| `organization` | Organization name on the provider |
+| `repository` | Repository name |
+| `prNumber` | Pull request number |
+
+Displays:
+- **About** -- PR title, status, author, branches, head commit
+- **Analysis** -- up-to-standards status, issues, coverage, complexity, duplication with gate pass/fail details
+- **New Issues** -- issues introduced by the PR, sorted by severity, with file path, line content, and detection tool
+- **New Potential Issues** -- potential issues that may need review
+- **Files** -- changed files with metric deltas (issues, coverage, complexity, duplication)
+
 ## Development
 
 ```bash

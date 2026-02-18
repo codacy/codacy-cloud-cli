@@ -1,0 +1,743 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { Command } from "commander";
+import { registerPullRequestCommand } from "./pull-request";
+import { AnalysisService } from "../api/client/services/AnalysisService";
+
+vi.mock("../api/client/services/AnalysisService");
+vi.spyOn(console, "log").mockImplementation(() => {});
+
+function createProgram(): Command {
+  const program = new Command();
+  program.option("-o, --output <format>", "output format", "table");
+  registerPullRequestCommand(program);
+  return program;
+}
+
+const mockPrData = {
+  isUpToStandards: true,
+  isAnalysing: false,
+  pullRequest: {
+    id: 1,
+    number: 42,
+    updated: "2025-06-14T10:00:00Z",
+    status: "Open",
+    repository: "test-repo",
+    title: "Add new feature",
+    owner: { id: 1, name: "dev-user" },
+    headCommitSha: "abc1234567890",
+    commonAncestorCommitSha: "def456",
+    originBranch: "feature/new",
+    targetBranch: "main",
+    gitHref: "https://github.com/test-org/test-repo/pull/42",
+  },
+  newIssues: 3,
+  fixedIssues: 1,
+  deltaComplexity: 2,
+  deltaClonesCount: -1,
+  coverage: {
+    deltaCoverage: -1.5,
+    diffCoverage: { value: 85.0, cause: "ValueIsPresent" },
+    isUpToStandards: true,
+    resultReasons: [
+      {
+        gate: "diffCoverageThreshold",
+        isUpToStandards: true,
+        expectedThreshold: { threshold: 70 },
+      },
+    ],
+  },
+  quality: {
+    isUpToStandards: true,
+    resultReasons: [
+      {
+        gate: "issueThreshold",
+        isUpToStandards: true,
+        expectedThreshold: { threshold: 5, minimumSeverity: "Warning" },
+      },
+      {
+        gate: "complexityThreshold",
+        isUpToStandards: true,
+        expectedThreshold: { threshold: 10 },
+      },
+    ],
+  },
+  meta: {},
+};
+
+const mockNewIssues = {
+  analyzed: true,
+  data: [
+    {
+      commitIssue: {
+        issueId: "issue-1",
+        resultDataId: 1,
+        filePath: "src/index.ts",
+        fileId: 1,
+        patternInfo: {
+          id: "no-undef",
+          title: "no undef vars",
+          category: "Error Prone",
+          severityLevel: "Error",
+          level: "Error",
+        },
+        toolInfo: { uuid: "tool-1", name: "ESLint" },
+        lineNumber: 10,
+        message: "Variable 'x' is not defined",
+        language: "TypeScript",
+        lineText: "  console.log(x);",
+        falsePositiveThreshold: 0.5,
+      },
+      deltaType: "Added",
+    },
+    {
+      commitIssue: {
+        issueId: "issue-2",
+        resultDataId: 2,
+        filePath: "src/utils.ts",
+        fileId: 2,
+        patternInfo: {
+          id: "no-unused",
+          title: "no unused variables",
+          category: "Code Style",
+          severityLevel: "Warning",
+          level: "Warning",
+        },
+        toolInfo: { uuid: "tool-1", name: "ESLint" },
+        lineNumber: 5,
+        message: "'helper' is assigned but never used",
+        language: "TypeScript",
+        lineText: "  const helper = 42;",
+        falsePositiveThreshold: 0.5,
+      },
+      deltaType: "Added",
+    },
+    {
+      commitIssue: {
+        issueId: "issue-3",
+        resultDataId: 3,
+        filePath: "src/auth.ts",
+        fileId: 3,
+        patternInfo: {
+          id: "sql-injection",
+          title: "SQL Injection",
+          category: "Security",
+          subCategory: "Injection",
+          severityLevel: "Error",
+          level: "Error",
+        },
+        toolInfo: { uuid: "tool-2", name: "Semgrep" },
+        lineNumber: 20,
+        message: "Potential SQL injection vulnerability",
+        language: "TypeScript",
+        lineText: '  db.query(`SELECT * FROM users WHERE id = ${id}`);',
+        falsePositiveThreshold: 0.3,
+      },
+      deltaType: "Added",
+    },
+  ],
+};
+
+const mockPotentialIssues = {
+  analyzed: true,
+  data: [
+    {
+      commitIssue: {
+        issueId: "issue-p1",
+        resultDataId: 10,
+        filePath: "src/config.ts",
+        fileId: 10,
+        patternInfo: {
+          id: "prefer-const",
+          title: "prefer const",
+          category: "Code Style",
+          severityLevel: "Info",
+          level: "Info",
+        },
+        toolInfo: { uuid: "tool-1", name: "ESLint" },
+        lineNumber: 3,
+        message: "'config' is never reassigned. Use 'const' instead.",
+        language: "TypeScript",
+        lineText: "  let config = {};",
+        falsePositiveThreshold: 0.8,
+      },
+      deltaType: "Added",
+    },
+  ],
+};
+
+const mockFiles = {
+  data: [
+    {
+      file: {
+        commitId: 1,
+        commitSha: "abc123",
+        fileId: 1,
+        fileDataId: 1,
+        path: "src/index.ts",
+        language: "TypeScript",
+        gitProviderUrl: "https://github.com/test-org/test-repo/blob/abc123/src/index.ts",
+        ignored: false,
+      },
+      quality: {
+        deltaNewIssues: 2,
+        deltaFixedIssues: 0,
+        deltaComplexity: 3,
+        deltaClonesCount: 0,
+      },
+      coverage: {
+        deltaCoverage: -2.5,
+        totalCoverage: 75.0,
+      },
+    },
+    {
+      file: {
+        commitId: 1,
+        commitSha: "abc123",
+        fileId: 2,
+        fileDataId: 2,
+        path: "src/utils.ts",
+        language: "TypeScript",
+        gitProviderUrl: "https://github.com/test-org/test-repo/blob/abc123/src/utils.ts",
+        ignored: false,
+      },
+      quality: {
+        deltaNewIssues: 0,
+        deltaFixedIssues: 0,
+        deltaComplexity: 0,
+        deltaClonesCount: 0,
+      },
+      coverage: {
+        deltaCoverage: 0,
+        totalCoverage: 90.0,
+      },
+    },
+  ],
+};
+
+function getAllOutput(): string {
+  return (console.log as ReturnType<typeof vi.fn>).mock.calls
+    .map((c) => c[0])
+    .join("\n");
+}
+
+describe("pull-request command", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.CODACY_API_TOKEN = "test-token";
+  });
+
+  it("should fetch and display PR details in table format", async () => {
+    vi.mocked(AnalysisService.getRepositoryPullRequest).mockResolvedValue(
+      mockPrData as any,
+    );
+    vi.mocked(AnalysisService.listPullRequestIssues)
+      .mockResolvedValueOnce(mockNewIssues as any)
+      .mockResolvedValueOnce(mockPotentialIssues as any);
+    vi.mocked(AnalysisService.listPullRequestFiles).mockResolvedValue(
+      mockFiles as any,
+    );
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "pull-request",
+      "gh",
+      "test-org",
+      "test-repo",
+      "42",
+    ]);
+
+    expect(AnalysisService.getRepositoryPullRequest).toHaveBeenCalledWith(
+      "gh",
+      "test-org",
+      "test-repo",
+      42,
+    );
+    expect(AnalysisService.listPullRequestIssues).toHaveBeenCalledTimes(2);
+    expect(AnalysisService.listPullRequestFiles).toHaveBeenCalledWith(
+      "gh",
+      "test-org",
+      "test-repo",
+      42,
+    );
+
+    const output = getAllOutput();
+
+    // About section
+    expect(output).toContain("GitHub / test-org / test-repo");
+    expect(output).toContain("#42");
+    expect(output).toContain("Add new feature");
+    expect(output).toContain("dev-user");
+    expect(output).toContain("feature/new");
+    expect(output).toContain("main");
+    expect(output).toContain("abc1234");
+
+    // Analysis section
+    expect(output).toContain("Analysis");
+    expect(output).toContain("✓");
+
+    // Issues section (merged — no separate "New Issues" / "New Potential Issues")
+    expect(output).toContain("Issues");
+    expect(output).toContain("Variable 'x' is not defined");
+    expect(output).toContain("src/index.ts:10");
+
+    // Potential issues merged in, tagged with POTENTIAL
+    expect(output).toContain("never reassigned");
+    expect(output).toContain("POTENTIAL");
+
+    // Files section
+    expect(output).toContain("Files");
+    expect(output).toContain("src/index.ts");
+  });
+
+  it("should output JSON when --output json is specified", async () => {
+    vi.mocked(AnalysisService.getRepositoryPullRequest).mockResolvedValue(
+      mockPrData as any,
+    );
+    vi.mocked(AnalysisService.listPullRequestIssues)
+      .mockResolvedValueOnce(mockNewIssues as any)
+      .mockResolvedValueOnce(mockPotentialIssues as any);
+    vi.mocked(AnalysisService.listPullRequestFiles).mockResolvedValue(
+      mockFiles as any,
+    );
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "--output",
+      "json",
+      "pull-request",
+      "gh",
+      "test-org",
+      "test-repo",
+      "42",
+    ]);
+
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringContaining('"Add new feature"'),
+    );
+  });
+
+  it("should show 'No issues' when there are no new issues", async () => {
+    vi.mocked(AnalysisService.getRepositoryPullRequest).mockResolvedValue(
+      mockPrData as any,
+    );
+    vi.mocked(AnalysisService.listPullRequestIssues)
+      .mockResolvedValueOnce({ analyzed: true, data: [] } as any)
+      .mockResolvedValueOnce({ analyzed: true, data: [] } as any);
+    vi.mocked(AnalysisService.listPullRequestFiles).mockResolvedValue(
+      { data: [] } as any,
+    );
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "pull-request",
+      "gh",
+      "test-org",
+      "test-repo",
+      "42",
+    ]);
+
+    const output = getAllOutput();
+    expect(output).toContain("No issues");
+  });
+
+  it("should show red ✗ and gate failure reasons when not up to standards", async () => {
+    const prNotUpToStandards = {
+      ...mockPrData,
+      quality: {
+        isUpToStandards: false,
+        resultReasons: [
+          {
+            gate: "issueThreshold",
+            isUpToStandards: false,
+            expectedThreshold: { threshold: 2, minimumSeverity: "Warning" },
+          },
+        ],
+      },
+      coverage: {
+        ...mockPrData.coverage,
+        isUpToStandards: false,
+        resultReasons: [
+          {
+            gate: "diffCoverageThreshold",
+            isUpToStandards: false,
+            expectedThreshold: { threshold: 80 },
+          },
+        ],
+      },
+    };
+
+    vi.mocked(AnalysisService.getRepositoryPullRequest).mockResolvedValue(
+      prNotUpToStandards as any,
+    );
+    vi.mocked(AnalysisService.listPullRequestIssues)
+      .mockResolvedValueOnce({ analyzed: true, data: [] } as any)
+      .mockResolvedValueOnce({ analyzed: true, data: [] } as any);
+    vi.mocked(AnalysisService.listPullRequestFiles).mockResolvedValue(
+      { data: [] } as any,
+    );
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "pull-request",
+      "gh",
+      "test-org",
+      "test-repo",
+      "42",
+    ]);
+
+    const output = getAllOutput();
+    expect(output).toContain("✗");
+    expect(output).toContain("Fails");
+    expect(output).toContain("2 warning issues");
+    expect(output).toContain("80% coverage");
+  });
+
+  it("should show 'To check' hint when gate has no data yet", async () => {
+    const prNoData = {
+      ...mockPrData,
+      newIssues: undefined,
+      fixedIssues: undefined,
+      deltaComplexity: undefined,
+      deltaClonesCount: undefined,
+      coverage: {
+        isUpToStandards: undefined,
+        resultReasons: [
+          {
+            gate: "diffCoverageThreshold",
+            isUpToStandards: true,
+            expectedThreshold: { threshold: 50 },
+          },
+        ],
+      },
+      quality: {
+        isUpToStandards: undefined,
+        resultReasons: [
+          {
+            gate: "issueThreshold",
+            isUpToStandards: true,
+            expectedThreshold: { threshold: 5 },
+          },
+        ],
+      },
+    };
+
+    vi.mocked(AnalysisService.getRepositoryPullRequest).mockResolvedValue(
+      prNoData as any,
+    );
+    vi.mocked(AnalysisService.listPullRequestIssues)
+      .mockResolvedValueOnce({ analyzed: true, data: [] } as any)
+      .mockResolvedValueOnce({ analyzed: true, data: [] } as any);
+    vi.mocked(AnalysisService.listPullRequestFiles).mockResolvedValue(
+      { data: [] } as any,
+    );
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "pull-request",
+      "gh",
+      "test-org",
+      "test-repo",
+      "42",
+    ]);
+
+    const output = getAllOutput();
+    expect(output).toContain("To check");
+    expect(output).toContain("50% coverage");
+    expect(output).toContain("5");
+  });
+
+  it("should sort issues by severity (Error before Warning before Info)", async () => {
+    // Issues are in reverse order: Info, Warning, Error
+    const unsortedIssues = {
+      analyzed: true,
+      data: [
+        {
+          commitIssue: {
+            issueId: "i1",
+            resultDataId: 1,
+            filePath: "a.ts",
+            fileId: 1,
+            patternInfo: {
+              id: "p1",
+              title: "info rule",
+              category: "Style",
+              severityLevel: "Info",
+              level: "Info",
+            },
+            toolInfo: { uuid: "t1", name: "Tool" },
+            lineNumber: 1,
+            message: "Info issue",
+            language: "TypeScript",
+            lineText: "let x = 1;",
+            falsePositiveThreshold: 0.5,
+          },
+          deltaType: "Added",
+        },
+        {
+          commitIssue: {
+            issueId: "i2",
+            resultDataId: 2,
+            filePath: "b.ts",
+            fileId: 2,
+            patternInfo: {
+              id: "p2",
+              title: "warn rule",
+              category: "Style",
+              severityLevel: "Warning",
+              level: "Warning",
+            },
+            toolInfo: { uuid: "t1", name: "Tool" },
+            lineNumber: 2,
+            message: "Warning issue",
+            language: "TypeScript",
+            lineText: "let y = 2;",
+            falsePositiveThreshold: 0.5,
+          },
+          deltaType: "Added",
+        },
+        {
+          commitIssue: {
+            issueId: "i3",
+            resultDataId: 3,
+            filePath: "c.ts",
+            fileId: 3,
+            patternInfo: {
+              id: "p3",
+              title: "error rule",
+              category: "Error Prone",
+              severityLevel: "Error",
+              level: "Error",
+            },
+            toolInfo: { uuid: "t1", name: "Tool" },
+            lineNumber: 3,
+            message: "Error issue",
+            language: "TypeScript",
+            lineText: "let z = 3;",
+            falsePositiveThreshold: 0.5,
+          },
+          deltaType: "Added",
+        },
+      ],
+    };
+
+    vi.mocked(AnalysisService.getRepositoryPullRequest).mockResolvedValue(
+      mockPrData as any,
+    );
+    vi.mocked(AnalysisService.listPullRequestIssues)
+      .mockResolvedValueOnce(unsortedIssues as any)
+      .mockResolvedValueOnce({ analyzed: true, data: [] } as any);
+    vi.mocked(AnalysisService.listPullRequestFiles).mockResolvedValue(
+      { data: [] } as any,
+    );
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "pull-request",
+      "gh",
+      "test-org",
+      "test-repo",
+      "42",
+    ]);
+
+    const output = getAllOutput();
+    const errorIdx = output.indexOf("Error issue");
+    const warningIdx = output.indexOf("Warning issue");
+    const infoIdx = output.indexOf("Info issue");
+    expect(errorIdx).toBeLessThan(warningIdx);
+    expect(warningIdx).toBeLessThan(infoIdx);
+  });
+
+  it("should filter files list to only show files with metric changes", async () => {
+    vi.mocked(AnalysisService.getRepositoryPullRequest).mockResolvedValue(
+      mockPrData as any,
+    );
+    vi.mocked(AnalysisService.listPullRequestIssues)
+      .mockResolvedValueOnce({ analyzed: true, data: [] } as any)
+      .mockResolvedValueOnce({ analyzed: true, data: [] } as any);
+    vi.mocked(AnalysisService.listPullRequestFiles).mockResolvedValue(
+      mockFiles as any,
+    );
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "pull-request",
+      "gh",
+      "test-org",
+      "test-repo",
+      "42",
+    ]);
+
+    const output = getAllOutput();
+    // src/index.ts has changes (deltaNewIssues: 2, deltaComplexity: 3, deltaCoverage: -2.5)
+    expect(output).toContain("src/index.ts");
+    // src/utils.ts has NO changes (all zeros) — should be filtered out
+    expect(output).not.toContain("src/utils.ts");
+  });
+
+  it("should show security subcategory for security issues", async () => {
+    vi.mocked(AnalysisService.getRepositoryPullRequest).mockResolvedValue(
+      mockPrData as any,
+    );
+    vi.mocked(AnalysisService.listPullRequestIssues)
+      .mockResolvedValueOnce(mockNewIssues as any)
+      .mockResolvedValueOnce({ analyzed: true, data: [] } as any);
+    vi.mocked(AnalysisService.listPullRequestFiles).mockResolvedValue(
+      { data: [] } as any,
+    );
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "pull-request",
+      "gh",
+      "test-org",
+      "test-repo",
+      "42",
+    ]);
+
+    const output = getAllOutput();
+    // The security issue has subCategory "Injection" (tool name no longer shown)
+    expect(output).toContain("Security");
+    expect(output).toContain("Injection");
+    expect(output).toContain("Potential SQL injection vulnerability");
+  });
+
+  it("should show false positive warning when probability exceeds threshold", async () => {
+    const issuesWithFalsePositive = {
+      analyzed: true,
+      data: [
+        {
+          commitIssue: {
+            issueId: "fp1",
+            resultDataId: 100,
+            filePath: "src/fp.ts",
+            fileId: 100,
+            patternInfo: {
+              id: "rule1",
+              title: "some rule",
+              category: "Error Prone",
+              severityLevel: "Warning",
+              level: "Warning",
+            },
+            toolInfo: { uuid: "t1", name: "Tool" },
+            lineNumber: 5,
+            message: "Possible issue here",
+            language: "TypeScript",
+            lineText: "  doSomething();",
+            falsePositiveProbability: 0.9,
+            falsePositiveThreshold: 0.5,
+            falsePositiveReason: "Common pattern that is usually intentional",
+          },
+          deltaType: "Added",
+        },
+      ],
+    };
+
+    vi.mocked(AnalysisService.getRepositoryPullRequest).mockResolvedValue(
+      mockPrData as any,
+    );
+    vi.mocked(AnalysisService.listPullRequestIssues)
+      .mockResolvedValueOnce(issuesWithFalsePositive as any)
+      .mockResolvedValueOnce({ analyzed: true, data: [] } as any);
+    vi.mocked(AnalysisService.listPullRequestFiles).mockResolvedValue(
+      { data: [] } as any,
+    );
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "pull-request",
+      "gh",
+      "test-org",
+      "test-repo",
+      "42",
+    ]);
+
+    const output = getAllOutput();
+    expect(output).toContain("Potential false positive");
+    expect(output).toContain("Common pattern that is usually intentional");
+  });
+
+  it("should format security gate failures correctly", async () => {
+    const prWithSecurityGate = {
+      ...mockPrData,
+      quality: {
+        isUpToStandards: false,
+        resultReasons: [
+          {
+            gate: "securityIssueThreshold",
+            isUpToStandards: false,
+            expectedThreshold: { threshold: 0 },
+          },
+        ],
+      },
+    };
+
+    vi.mocked(AnalysisService.getRepositoryPullRequest).mockResolvedValue(
+      prWithSecurityGate as any,
+    );
+    vi.mocked(AnalysisService.listPullRequestIssues)
+      .mockResolvedValueOnce({ analyzed: true, data: [] } as any)
+      .mockResolvedValueOnce({ analyzed: true, data: [] } as any);
+    vi.mocked(AnalysisService.listPullRequestFiles).mockResolvedValue(
+      { data: [] } as any,
+    );
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "pull-request",
+      "gh",
+      "test-org",
+      "test-repo",
+      "42",
+    ]);
+
+    const output = getAllOutput();
+    expect(output).toContain("Fails");
+    expect(output).toContain("security issues");
+    // Should NOT contain raw gate name
+    expect(output).not.toContain("securityIssueThreshold threshold");
+  });
+
+  it("should fail when CODACY_API_TOKEN is not set", async () => {
+    delete process.env.CODACY_API_TOKEN;
+
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit called");
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const program = createProgram();
+    await expect(
+      program.parseAsync([
+        "node",
+        "test",
+        "pull-request",
+        "gh",
+        "test-org",
+        "test-repo",
+        "42",
+      ]),
+    ).rejects.toThrow("process.exit called");
+
+    mockExit.mockRestore();
+  });
+});

@@ -33,7 +33,7 @@ codacy-cloud-cli/
 │   │       └── services/        # 28 service classes wrapping API endpoints
 │   ├── commands/                # One file per command (see Command Pattern below)
 │   │   └── CLAUDE.md            # Design decisions for commands
-│   └── utils/                   # Shared utilities (auth, error handling, output formatting)
+│   └── utils/                   # Shared utilities (auth, error handling, output formatting, formatting helpers)
 ├── api-v3/
 │   └── api-swagger.yaml         # OpenAPI 3.0.1 spec (source of truth for client generation)
 ├── dist/                        # Compiled JS output (gitignored)

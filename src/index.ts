@@ -4,6 +4,7 @@ import { OpenAPI } from "./api/client/core/OpenAPI";
 import { registerInfoCommand } from "./commands/info";
 import { registerRepositoriesCommand } from "./commands/repositories";
 import { registerRepositoryCommand } from "./commands/repository";
+import { registerPullRequestCommand } from "./commands/pull-request";
 
 const program = new Command();
 
@@ -22,5 +23,6 @@ program
 registerInfoCommand(program);
 registerRepositoriesCommand(program);
 registerRepositoryCommand(program);
+registerPullRequestCommand(program);
 
 program.parse(process.argv);

@@ -82,3 +82,41 @@ Instead of a dedicated "Visibility" column (wastes horizontal space), public rep
   - **Issues Overview**: three count tables — by category, severity level, and language — sorted descending by count within each group
 - Shows pagination warning for pull requests if more exist
 - JSON output bundles all three API responses into a single object
+
+## Shared Formatting Utilities (`utils/formatting.ts`)
+
+Several helpers are shared between `repository.ts` and `pull-request.ts` via `utils/formatting.ts`:
+- `printSection(title)` — bold section header
+- `truncate(text, max)` — truncate with "..." suffix
+- `colorMetric(value, threshold, mode)` — threshold-based coloring (max/min)
+- `colorByGate(display, passing)` — green/red based on gate status
+- `formatDelta(value, passing)` — +/- signed value with optional gate coloring
+- `buildGateStatus(pr)` — maps `resultReasons` gate names to metric columns
+- `formatStandards(pr)` — ✓/✗/- from quality + coverage `isUpToStandards`
+- `formatPrCoverage(pr, passing)` — diffCoverage% (+/-deltaCoverage%)
+- `formatPrIssues(pr, passing)` — +newIssues (colored by gate) / -fixedIssues (always gray)
+
+## pull-request command (`pull-request.ts`)
+
+- Takes `<provider>`, `<organization>`, `<repository>`, and `<prNumber>` as required arguments
+- Calls four API endpoints in parallel:
+  - `getRepositoryPullRequest` — PR metadata + analysis summary
+  - `listPullRequestIssues` (status=new, onlyPotential=false) — new confirmed issues
+  - `listPullRequestIssues` (status=new, onlyPotential=true) — new potential issues
+  - `listPullRequestFiles` — files with metric deltas
+- Displays a multi-section view:
+  - **About**: provider/org/repo, PR number + title, status, author, branches (origin → target), updated (friendly date), head commit SHA
+  - **Analysis**: analyzing status, up-to-standards (✓/✗ computed from quality + coverage), issues, coverage, complexity, duplication — all colored by gate status
+    - Gate failure/pass reasons shown inline next to the metric (e.g. "Fails <= 2 warning issues", "Fails <= 0 security issues")
+    - "To check" hints shown inline when a gate is configured but the metric has no data yet (e.g. "To check >= 50% coverage")
+    - Security gates (`securityIssueThreshold`) are handled explicitly — not falling through to generic formatting
+  - **Issues**: single merged list of confirmed + potential issues, card-style format (not a table), sorted by severity (Error > High > Warning > Info)
+    - Each card shows: colored severity | category + subcategory | POTENTIAL (if potential issue)
+    - Message, file:line, line content
+    - Severity colors: Error=red, High=orange (#FF8C00), Warning=yellow, Info=blue
+    - False positive detection: if `falsePositiveProbability >= falsePositiveThreshold`, shows "Potential false positive: {reason}" below line content
+  - **Files**: table showing only files with any metric delta change
+    - File path (truncated at 50), issues (new red, fixed green), coverage delta, complexity delta, duplication delta
+    - Zero values shown in gray without +/- sign; N/A also gray
+- Shows pagination warnings for issues and files
+- JSON output bundles PR data, new issues, potential issues, and files

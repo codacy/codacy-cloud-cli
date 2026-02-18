@@ -92,6 +92,66 @@ Important information to show:
 - [x] 2026-02-18 Implement `repository` command - show details, status, and metrics for a specific repository
 - [x] 2026-02-18 Write tests for `repository` command
 
+### Pull Request Command
+> Show details for a specific pull request.
+> API Endpoints to use: 
+- [getRepositoryPullRequest](https://api.codacy.com/api/api-docs#getrepositorypullrequest)
+- [listPullRequestIssues](https://api.codacy.com/api/api-docs#listpullrequestissues)
+- [listPullRequestFiles](https://api.codacy.com/api/api-docs#listpullrequestfiles)
+
+Important information to show:
+- About the pull request
+  - Provider / Organization / Repository Name / Visibility
+  - Pull Request Number
+  - Title
+  - Created At
+  - Updated At
+  - Last Analysis (Time and Commit SHA)
+  - From Branch to Target Branch
+  - Status (Open, Closed, Merged)
+  - Author
+- About the analysis
+  - Is it currently being analyzed?
+  - Is it up to standards?
+  - Issues (New and Fixed)
+  - Coverage Diff and Delta
+  - Complex Delta
+  - Duplication Delta
+  - General considerations
+    - use again `resultReasons` to color the metrics, and this time, if a metric is not up to the standards, show why (e.g. "Fails <= 2 medium issues")
+    - if in `resultReasons` there is a gate value expected for a metric that still has no data, also show it next to the metric saying for example "To check >= 50% gate"
+- Issues List: show new and new potential issues only (`onlyPotential` false for non potential, true for only potential -- new issues have `deltaType` = 'Added'); sort by severity level, showing the most sever first
+  - File Path, Line Number
+  - Line content
+  - Issue message
+  - Category
+  - Severity (red for critical/error, orange for high, yellow for medium/warning, blue for low/info)
+  - Subcategory (only for security issues)
+  - Detected by (Tool + Pattern title; e.g. "ESLint: no undef vars")
+- Files List: list only files with any metric delta change
+  - File Path
+  - Issues +{New Issues} / -{Fixed Issues}
+  - Coverage Delta +/-{Delta Coverage %}
+  - Complex Delta
+  - Duplication Delta
+
+For the Issues List in particular, showing them in a table will not work. So follow this format:
+```
+--------------------------------
+
+{Severity} | {Category} {Subcategory} | {Detected by}
+{Issue Message}
+
+{File Path}:{Line Number} 
+{Line content}
+
+--------------------------------
+```
+
+- [x] 2026-02-18 Implement `pull-request` command - show details for a specific pull request
+- [x] 2026-02-18 Write tests for `pull-request` command
+
+
 ## Deployment & CI
 
 - [ ] Make the project ready to deploy to npm and be executed as a CLI tool by running `npm install -g`
@@ -109,3 +169,5 @@ Important information to show:
 - 2026-02-17: Utility tests added for `auth` and `providers` (6 tests)
 - 2026-02-17: `src/commands/CLAUDE.md` created with design decisions
 - 2026-02-18: `repository` command implemented with tests (5 tests) — dashboard with about, setup, metrics, PRs, and issues overview
+- 2026-02-18: Extracted shared formatting helpers to `utils/formatting.ts` (reused by repository + pull-request)
+- 2026-02-18: `pull-request` command implemented with tests (9 tests) — about, analysis with gate reasons, issues cards, files list

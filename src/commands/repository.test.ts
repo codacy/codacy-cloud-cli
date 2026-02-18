@@ -176,7 +176,8 @@ describe("repository command", () => {
     // Pull Requests section
     expect(allOutput).toContain("Add new feature");
     expect(allOutput).toContain("42");
-    expect(allOutput).toContain("+2 / -5");
+    expect(allOutput).toContain("+2");
+    expect(allOutput).toContain("-5");
     expect(allOutput).toContain("85.5%");
     expect(allOutput).toContain("-2.5%");
     expect(allOutput).toContain("✓");

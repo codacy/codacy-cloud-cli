@@ -11,34 +11,21 @@ import {
   printPaginationWarning,
 } from "../utils/output";
 import { providerDisplayName } from "../utils/providers";
+import {
+  colorMetric,
+  printSection,
+  truncate,
+  buildGateStatus,
+  formatStandards,
+  colorByGate,
+  formatDelta,
+  formatPrCoverage,
+  formatPrIssues,
+} from "../utils/formatting";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 import { RepositoryWithAnalysis } from "../api/client/models/RepositoryWithAnalysis";
 import { PullRequestWithAnalysis } from "../api/client/models/PullRequestWithAnalysis";
-import { AnalysisResultReason } from "../api/client/models/AnalysisResultReason";
 import { Count } from "../api/client/models/Count";
-
-/**
- * Color a metric value based on a threshold.
- * "max" thresholds: green if under, red if over.
- * "min" thresholds: green if above, red if under.
- */
-function colorMetric(
-  value: number | undefined,
-  threshold: number | undefined,
-  mode: "max" | "min",
-): string {
-  if (value === undefined || value === null) return ansis.dim("N/A");
-  const display = `${value.toFixed(1)}%`;
-  if (threshold === undefined) return display;
-  if (mode === "max") {
-    return value > threshold ? ansis.red(display) : ansis.green(display);
-  }
-  return value < threshold ? ansis.red(display) : ansis.green(display);
-}
-
-function printSection(title: string): void {
-  console.log(ansis.bold(`\n${title}\n`));
-}
 
 function printAbout(data: RepositoryWithAnalysis): void {
   printSection("About");
@@ -132,101 +119,6 @@ function printMetrics(data: RepositoryWithAnalysis): void {
     ),
   });
   console.log(table.toString());
-}
-
-function truncate(text: string, max: number): string {
-  return text.length > max ? text.substring(0, max - 3) + "..." : text;
-}
-
-type GateStatusMap = {
-  issues?: boolean;
-  coverage?: boolean;
-  complexity?: boolean;
-  duplication?: boolean;
-};
-
-/**
- * Build a map of gate pass/fail from quality and coverage resultReasons.
- * Gate names are matched by keyword to map to metric columns.
- */
-function buildGateStatus(pr: PullRequestWithAnalysis): GateStatusMap {
-  const status: GateStatusMap = {};
-  const reasons: AnalysisResultReason[] = [
-    ...(pr.quality?.resultReasons || []),
-    ...(pr.coverage?.resultReasons || []),
-  ];
-  for (const r of reasons) {
-    const gate = r.gate.toLowerCase();
-    if (gate.includes("issue") && !gate.includes("security")) {
-      status.issues = r.isUpToStandards;
-    } else if (gate.includes("coverage")) {
-      status.coverage = r.isUpToStandards;
-    } else if (gate.includes("complexity")) {
-      status.complexity = r.isUpToStandards;
-    } else if (gate.includes("duplication") || gate.includes("clone")) {
-      status.duplication = r.isUpToStandards;
-    }
-  }
-  return status;
-}
-
-/**
- * Compute up-to-standards from quality and coverage (ignoring the global field).
- * Red ✗ if either is false, green ✓ if all available are true, dim - if no data.
- */
-function formatStandards(pr: PullRequestWithAnalysis): string {
-  const covUp = pr.coverage?.isUpToStandards;
-  const qualUp = pr.quality?.isUpToStandards;
-  if (covUp === undefined && qualUp === undefined) return ansis.dim("-");
-  if (covUp === false || qualUp === false) return ansis.red("✗");
-  return ansis.green("✓");
-}
-
-/**
- * Color a value string based on gate status (green if passing, red if failing).
- * Falls back to no coloring if gate status is unknown.
- */
-function colorByGate(display: string, passing: boolean | undefined): string {
-  if (passing === undefined) return display;
-  return passing ? ansis.green(display) : ansis.red(display);
-}
-
-function formatDelta(
-  value: number | undefined,
-  passing?: boolean,
-): string {
-  if (value === undefined || value === null) return ansis.dim("N/A");
-  const sign = value > 0 ? "+" : "";
-  const display = `${sign}${value}`;
-  if (passing !== undefined) return colorByGate(display, passing);
-  if (value > 0) return ansis.red(display);
-  if (value < 0) return ansis.green(display);
-  return display;
-}
-
-function formatPrCoverage(
-  pr: PullRequestWithAnalysis,
-  passing?: boolean,
-): string {
-  const diff = pr.coverage?.diffCoverage?.value;
-  const delta = pr.coverage?.deltaCoverage;
-  if (diff === undefined && delta === undefined) return ansis.dim("N/A");
-  const diffStr = diff !== undefined ? `${diff.toFixed(1)}%` : "N/A";
-  const deltaSign = delta !== undefined && delta > 0 ? "+" : "";
-  const deltaStr =
-    delta !== undefined ? `(${deltaSign}${delta.toFixed(1)}%)` : "";
-  const display = deltaStr ? `${diffStr} ${deltaStr}` : diffStr;
-  return colorByGate(display, passing);
-}
-
-function formatPrIssues(
-  pr: PullRequestWithAnalysis,
-  passing?: boolean,
-): string {
-  const newI = pr.newIssues !== undefined ? `+${pr.newIssues}` : "N/A";
-  const fixI = pr.fixedIssues !== undefined ? `-${pr.fixedIssues}` : "N/A";
-  const display = `${newI} / ${fixI}`;
-  return colorByGate(display, passing);
 }
 
 function printPullRequests(pullRequests: PullRequestWithAnalysis[]): void {
