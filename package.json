@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "fetch-api": "curl https://artifacts.codacy.com/api/codacy-api/42.0.0/apiv3.yaml -o ./api-v3/api-swagger.yaml --create-dirs",
+    "test": "vitest run",
+    "fetch-api": "curl https://artifacts.codacy.com/api/codacy-api/50.7.17/apiv3-bundled.yaml -o ./api-v3/api-swagger.yaml --create-dirs",
     "generate-api": "rm -rf ./src/api/client && openapi --input ./api-v3/api-swagger.yaml --output ./src/api/client --useUnionTypes --indent 2 --client fetch",
     "update-api": "npm run fetch-api && npm run generate-api",
     "start": "npx ts-node src/index.ts",
@@ -26,6 +26,7 @@
     "@codacy/openapi-typescript-codegen": "0.0.8",
     "@types/commander": "2.12.0",
     "@types/node": "22.15.21",
-    "typescript": "5.8.3"
+    "typescript": "5.8.3",
+    "vitest": "4.0.18"
   }
 }

@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import { OpenAPI } from "./api/client/core/OpenAPI";
-import { registerUserCommand } from "./commands/user";
-import { registerOrgsCommand } from "./commands/orgs";
-import { registerReposCommand } from "./commands/repos";
+import { registerInfoCommand } from "./commands/info";
+import { registerRepositoriesCommand } from "./commands/repositories";
+import { registerRepositoryCommand } from "./commands/repository";
 
 const program = new Command();
 
@@ -16,17 +16,11 @@ OpenAPI.HEADERS = {
 program
   .name("codacy-cloud-cli")
   .description("A CLI tool to interact with the Codacy API")
-  .version("1.0.0");
+  .version("1.0.0")
+  .option("-o, --output <format>", "output format (table or json)", "table");
 
-registerUserCommand(program);
-registerOrgsCommand(program);
-registerReposCommand(program);
-
-program
-  .command("help")
-  .description("Display help information for all commands and options")
-  .action(() => {
-    program.help();
-  });
+registerInfoCommand(program);
+registerRepositoriesCommand(program);
+registerRepositoryCommand(program);
 
 program.parse(process.argv);

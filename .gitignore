@@ -12,3 +12,9 @@ dist/
 
 #Ignore vscode AI rules
 .github/copilot-instructions.md
+
+# Ignore api-v3
+api-v3/
+
+# Ignore .codacy
+.codacy/
