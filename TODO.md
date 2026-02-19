@@ -154,10 +154,11 @@ For the Issues List in particular, showing them in a table will not work. So fol
 
 ## Deployment & CI
 
-- [ ] Make the project ready to deploy to npm and be executed as a CLI tool by running `npm install -g`
-- [ ] Add CI pipeline for build + test (GitHub Actions)
-- [ ] Add CI pipeline for deploy to npm (GitHub Actions)
-- [ ] Add CLI help examples to each command
+- [x] 2026-02-18 Make the project ready to deploy to npm and be executed as a CLI tool by running `npm install -g`
+- [x] 2026-02-18 Make the project ready to distribute later as a separate brew formula for macOS/Linux/Windows
+- [x] 2026-02-18 Add CI pipeline for build + test (GitHub Actions)
+- [x] 2026-02-18 Add CI pipeline for deploy to npm (GitHub Actions)
+- [x] 2026-02-18 Add CLI help examples to each command
 
 ---
 
@@ -170,4 +171,7 @@ For the Issues List in particular, showing them in a table will not work. So fol
 - 2026-02-17: `src/commands/CLAUDE.md` created with design decisions
 - 2026-02-18: `repository` command implemented with tests (5 tests) — dashboard with about, setup, metrics, PRs, and issues overview
 - 2026-02-18: Extracted shared formatting helpers to `utils/formatting.ts` (reused by repository + pull-request)
-- 2026-02-18: `pull-request` command implemented with tests (9 tests) — about, analysis with gate reasons, issues cards, files list
+- 2026-02-18: `pull-request` command implemented with tests (11 tests) — about, analysis with gate reasons, issues cards, files list
+- 2026-02-18: npm package ready — bin, files, prepublishOnly, tsconfig.build.json, engines
+- 2026-02-18: CI pipelines — build+test on push/PR (Node 18/20/22), publish to npm on release
+- 2026-02-18: CLI help examples added to all commands

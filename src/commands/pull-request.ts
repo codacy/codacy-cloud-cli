@@ -397,6 +397,13 @@ export function registerPullRequestCommand(program: Command) {
     .argument("<organization>", "organization name")
     .argument("<repository>", "repository name")
     .argument("<prNumber>", "pull request number")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ codacy-cloud-cli pull-request gh my-org my-repo 42
+  $ codacy-cloud-cli pull-request gh my-org my-repo 42 --output json`,
+    )
     .action(async function (
       this: Command,
       provider: string,

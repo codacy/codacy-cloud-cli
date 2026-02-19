@@ -16,6 +16,13 @@ export function registerInfoCommand(program: Command) {
   program
     .command("info")
     .description("Show authenticated user information and organizations")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ codacy-cloud-cli info
+  $ codacy-cloud-cli info --output json`,
+    )
     .action(async function (this: Command) {
       try {
         checkApiToken();

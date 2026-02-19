@@ -200,6 +200,13 @@ export function registerRepositoryCommand(program: Command) {
     .argument("<provider>", "git provider (gh, gl, or bb)")
     .argument("<organization>", "organization name")
     .argument("<repository>", "repository name")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ codacy-cloud-cli repository gh my-org my-repo
+  $ codacy-cloud-cli repository gh my-org my-repo --output json`,
+    )
     .action(async function (
       this: Command,
       provider: string,

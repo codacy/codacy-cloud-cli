@@ -1,20 +1,35 @@
 {
   "name": "codacy-cloud-cli",
   "version": "1.0.0",
-  "main": "index.js",
+  "description": "A command-line tool to interact with Codacy Cloud from your terminal",
+  "main": "dist/index.js",
+  "bin": {
+    "codacy": "dist/index.js"
+  },
+  "files": [
+    "dist/"
+  ],
   "scripts": {
     "test": "vitest run",
+    "build": "tsc -p tsconfig.build.json",
+    "prepublishOnly": "npm run build",
+    "start": "npx ts-node src/index.ts",
+    "start:dist": "node dist/index.js",
     "fetch-api": "curl https://artifacts.codacy.com/api/codacy-api/50.7.17/apiv3-bundled.yaml -o ./api-v3/api-swagger.yaml --create-dirs",
     "generate-api": "rm -rf ./src/api/client && openapi --input ./api-v3/api-swagger.yaml --output ./src/api/client --useUnionTypes --indent 2 --client fetch",
-    "update-api": "npm run fetch-api && npm run generate-api",
-    "start": "npx ts-node src/index.ts",
-    "build": "npx tsc",
-    "start:dist": "node dist/index.js"
+    "update-api": "npm run fetch-api && npm run generate-api"
   },
-  "keywords": [],
+  "keywords": [
+    "codacy",
+    "cli",
+    "code-quality",
+    "static-analysis"
+  ],
   "author": "",
   "license": "ISC",
-  "description": "",
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "ansis": "4.0.0",
     "cli-table3": "^0.6.3",

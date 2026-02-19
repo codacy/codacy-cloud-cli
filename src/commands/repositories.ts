@@ -52,6 +52,14 @@ export function registerRepositoriesCommand(program: Command) {
     .argument("<provider>", "git provider (gh, gl, or bb)")
     .argument("<organization>", "organization name")
     .option("-s, --search <query>", "filter repositories by name")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ codacy-cloud-cli repositories gh my-org
+  $ codacy-cloud-cli repositories gh my-org --search my-repo
+  $ codacy-cloud-cli repositories gl my-org --output json`,
+    )
     .action(async function (
       this: Command,
       provider: string,
