@@ -4,6 +4,30 @@
 
 Each command is a single file that exports a `register<Name>Command(program: Command)` function. Commands are registered in `src/index.ts`.
 
+## Command Aliases
+
+Every command must declare a short alias via `.alias()`. Keep aliases short (2–4 characters) and intuitive:
+- `repositories` → `repos`
+- `repository` → `repo`
+- `pull-request` → `pr`
+- `issues` → `is`
+
+## Option Short Flags
+
+Every command option must have both a short flag and a long flag: `-X, --long-name <value>`. Pick single letters that are intuitive and don't conflict with Commander's built-in flags (`-V/--version`, `-h/--help`) or the global `-o/--output` option. When the natural letter is already taken, use uppercase (e.g. `-O, --overview` instead of `-o`).
+
+## Option Naming: Singular vs Plural
+
+Use a **singular** option name when the parameter accepts a single value, and a **plural** name when it accepts a comma-separated list:
+
+- `--branch main` → singular (one branch)
+- `--severities Critical,High` → plural (list of severity levels)
+- `--categories Security,CodeStyle` → plural (list of categories)
+- `--languages TypeScript,Python` → plural (list of languages)
+- `--authors dev@example.com,other@example.com` → plural (list of emails)
+
+This applies to both the long flag name and the metavar: `--severities <severities>`, not `--severities <severity>`.
+
 ## Output Format
 
 All commands support `--output json` via the global `-o, --output` option. Commands use `getOutputFormat(this)` (from `utils/output.ts`) to check the format and either:

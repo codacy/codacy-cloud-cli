@@ -96,6 +96,72 @@ Displays a multi-section dashboard:
 - **Open Pull Requests** -- status, issues, coverage, complexity, duplication deltas
 - **Issues Overview** -- totals by category, severity, and language
 
+#### `issues <provider> <organization> <repository>`
+
+Search for issues in a repository with optional filters.
+
+```bash
+codacy issues gh my-org my-repo
+codacy issues gh my-org my-repo --branch main --severities Critical,High
+codacy issues gh my-org my-repo --categories Security --overview
+codacy issues gh my-org my-repo --output json
+```
+
+| Argument | Description |
+|---|---|
+| `provider` | Git provider: `gh` (GitHub), `gl` (GitLab), or `bb` (Bitbucket) |
+| `organization` | Organization name on the provider |
+| `repository` | Repository name |
+
+| Option | Description |
+|---|---|
+| `--branch <branch>` | Branch name (defaults to the main branch) |
+| `--patterns <patterns>` | Comma-separated list of pattern IDs |
+| `--severities <severities>` | Comma-separated list of severity levels: `Critical`, `High`, `Medium`, `Minor` |
+| `--categories <categories>` | Comma-separated list of category names |
+| `--languages <languages>` | Comma-separated list of language names |
+| `--tags <tags>` | Comma-separated list of tag names |
+| `--authors <authors>` | Comma-separated list of author emails |
+| `--overview` | Show issue count totals instead of the issues list |
+
+Without `--overview`, displays issues as cards sorted by severity (Error first), with file path, line content, and false-positive warnings where applicable.
+
+With `--overview`, displays issue count totals grouped by: category, severity, language, tag, and author.
+
+#### `findings <provider> <organization> [repository]`
+
+Show security findings for a repository or an entire organization.
+
+```bash
+codacy-cloud-cli findings gh my-org my-repo
+codacy-cloud-cli findings gh my-org
+codacy-cloud-cli findings gh my-org --severities Critical,High
+codacy-cloud-cli findings gh my-org my-repo --statuses Overdue,DueSoon
+codacy-cloud-cli findings gh my-org my-repo --output json
+```
+
+| Argument | Description |
+|---|---|
+| `provider` | Git provider: `gh` (GitHub), `gl` (GitLab), or `bb` (Bitbucket) |
+| `organization` | Organization name on the provider |
+| `repository` | Repository name (optional — omit to show org-wide findings) |
+
+| Option | Description |
+|---|---|
+| `-q, --search <text>` | Search term to filter findings |
+| `-s, --severities <severities>` | Comma-separated priority levels: `Critical`, `High`, `Medium`, `Low` |
+| `-S, --statuses <statuses>` | Comma-separated statuses: `Overdue`, `OnTrack`, `DueSoon`, `ClosedOnTime`, `ClosedLate`, `Ignored` |
+| `-c, --categories <categories>` | Comma-separated security category names |
+| `-T, --scan-types <types>` | Comma-separated scan types |
+| `-d, --dast-targets <urls>` | Comma-separated DAST target URLs |
+
+Displays findings as cards sorted by priority (Critical first). Each card shows:
+- Priority, security category, scan type, and (for pen test findings) likelihood and effort to fix
+- Finding title
+- Status, due date, CVE/CWE identifiers, affected/fixed versions, application, and affected targets
+
+When browsing org-wide (no repository argument), the repository name is shown on each card.
+
 #### `pull-request <provider> <organization> <repository> <prNumber>`
 
 Show details, analysis status, issues, and changed files for a specific pull request.

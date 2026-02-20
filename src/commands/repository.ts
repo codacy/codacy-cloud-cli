@@ -122,11 +122,11 @@ function printMetrics(data: RepositoryWithAnalysis): void {
 }
 
 function printPullRequests(pullRequests: PullRequestWithAnalysis[]): void {
-  printSection("Open Pull Requests");
   const open = pullRequests.filter(
     (pr) =>
       pr.pullRequest.status === "open" || pr.pullRequest.status === "Open",
   );
+  printSection("Open Pull Requests", open.length, "open pull request");
   if (open.length === 0) {
     console.log(ansis.dim("  No open pull requests."));
     return;
@@ -196,6 +196,7 @@ function printIssuesOverview(counts: {
 export function registerRepositoryCommand(program: Command) {
   program
     .command("repository")
+    .alias("repo")
     .description("Show details, status, and metrics for a specific repository")
     .argument("<provider>", "git provider (gh, gl, or bb)")
     .argument("<organization>", "organization name")

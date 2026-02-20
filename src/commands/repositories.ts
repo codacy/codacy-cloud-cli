@@ -11,6 +11,8 @@ import {
   printPaginationWarning,
 } from "../utils/output";
 import { AnalysisService } from "../api/client/services/AnalysisService";
+import { formatCount } from "../utils/formatting";
+import pluralize from "pluralize";
 
 /**
  * Format a percentage value, coloring it red or green based on a threshold.
@@ -48,6 +50,7 @@ function formatGrade(gradeLetter: string | undefined): string {
 export function registerRepositoriesCommand(program: Command) {
   program
     .command("repositories")
+    .alias("repos")
     .description("List repositories for an organization with analysis data")
     .argument("<provider>", "git provider (gh, gl, or bb)")
     .argument("<organization>", "organization name")
@@ -94,8 +97,12 @@ Examples:
           return;
         }
 
+        const repoTotal = response.pagination?.total ?? repos.length;
+        const totalSuffix = ` — Found ${formatCount(repoTotal)} ${pluralize("repository", repoTotal)}`;
         console.log(
-          ansis.bold(`\nRepositories for ${organization} (${provider})\n`),
+          ansis.bold(
+            `\nRepositories for ${organization} (${provider})${totalSuffix}\n`,
+          ),
         );
 
         const table = createTable({

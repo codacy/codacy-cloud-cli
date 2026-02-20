@@ -5,6 +5,8 @@ import { registerInfoCommand } from "./commands/info";
 import { registerRepositoriesCommand } from "./commands/repositories";
 import { registerRepositoryCommand } from "./commands/repository";
 import { registerPullRequestCommand } from "./commands/pull-request";
+import { registerIssuesCommand } from "./commands/issues";
+import { registerFindingsCommand } from "./commands/findings";
 
 const program = new Command();
 
@@ -24,5 +26,7 @@ registerInfoCommand(program);
 registerRepositoriesCommand(program);
 registerRepositoryCommand(program);
 registerPullRequestCommand(program);
+registerIssuesCommand(program);
+registerFindingsCommand(program);
 
 program.parse(process.argv);

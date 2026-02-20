@@ -1,7 +1,15 @@
 import Table, { TableConstructorOptions } from "cli-table3";
 import { Command } from "commander";
 import ansis from "ansis";
-import dayjs from "dayjs";
+import {
+  parseISO,
+  isValid,
+  isToday,
+  isYesterday,
+  differenceInMinutes,
+  differenceInHours,
+  format,
+} from "date-fns";
 import { PaginationInfo } from "../api/client/models/PaginationInfo";
 
 export type OutputFormat = "table" | "json";
@@ -76,26 +84,20 @@ export function printPaginationWarning(
  * - Older: "YYYY-MM-DD"
  */
 export function formatFriendlyDate(dateStr: string): string {
-  const date = dayjs(dateStr);
-  const now = dayjs();
+  const date = parseISO(dateStr);
+  if (!isValid(date)) return "N/A";
 
-  if (!date.isValid()) return "N/A";
+  const now = new Date();
 
-  const startOfToday = now.startOf("day");
-  const startOfYesterday = startOfToday.subtract(1, "day");
-
-  if (date.isAfter(startOfToday)) {
-    // Same day — show relative time
-    const diffMinutes = now.diff(date, "minute");
+  if (isToday(date)) {
+    const diffMinutes = differenceInMinutes(now, date);
     if (diffMinutes < 1) return "Just now";
     if (diffMinutes < 60) return `${diffMinutes} min ago`;
-    const diffHours = now.diff(date, "hour");
+    const diffHours = differenceInHours(now, date);
     return `${diffHours}h ago`;
   }
 
-  if (date.isAfter(startOfYesterday)) {
-    return "Yesterday";
-  }
+  if (isYesterday(date)) return "Yesterday";
 
-  return date.format("YYYY-MM-DD");
+  return format(date, "yyyy-MM-dd");
 }

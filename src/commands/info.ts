@@ -15,6 +15,7 @@ import { AccountService } from "../api/client/services/AccountService";
 export function registerInfoCommand(program: Command) {
   program
     .command("info")
+    .alias("i")
     .description("Show authenticated user information and organizations")
     .addHelpText(
       "after",

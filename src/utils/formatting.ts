@@ -1,4 +1,6 @@
 import ansis from "ansis";
+import numeral from "numeral";
+import pluralize from "pluralize";
 import { PullRequestWithAnalysis } from "../api/client/models/PullRequestWithAnalysis";
 import { AnalysisResultReason } from "../api/client/models/AnalysisResultReason";
 
@@ -11,10 +13,27 @@ export type GateStatusMap = {
 };
 
 /**
- * Print a bold section header.
+ * Format a count with abbreviated notation for large numbers (e.g. 1200 → "1.2k").
  */
-export function printSection(title: string): void {
-  console.log(ansis.bold(`\n${title}\n`));
+export function formatCount(n: number): string {
+  return numeral(n).format("0.[0]a");
+}
+
+/**
+ * Print a bold section header, optionally with a total count.
+ * e.g. printSection("Issues", 45000, "issue") → "Issues — Found 45k issues"
+ */
+export function printSection(
+  title: string,
+  total?: number,
+  itemLabel?: string,
+): void {
+  let header = title;
+  if (total !== undefined) {
+    const label = itemLabel ? ` ${pluralize(itemLabel, total)}` : "";
+    header += ` — Found ${formatCount(total)}${label}`;
+  }
+  console.log(ansis.bold(`\n${header}\n`));
 }
 
 /**

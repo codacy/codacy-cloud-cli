@@ -38,18 +38,26 @@ const SEVERITY_ORDER: Record<string, number> = {
   Info: 3,
 };
 
+const SEVERITY_DISPLAY: Record<string, string> = {
+  Error: "Critical",
+  High: "High",
+  Warning: "Medium",
+  Info: "Minor",
+};
+
 function colorSeverity(level: SeverityLevel): string {
+  const label = SEVERITY_DISPLAY[level] ?? level;
   switch (level) {
     case "Error":
-      return ansis.red(level);
+      return ansis.red(label);
     case "High":
-      return ansis.hex("#FF8C00")(level);
+      return ansis.hex("#FF8C00")(label);
     case "Warning":
-      return ansis.yellow(level);
+      return ansis.yellow(label);
     case "Info":
-      return ansis.blue(level);
+      return ansis.blue(label);
     default:
-      return level;
+      return label;
   }
 }
 
@@ -302,7 +310,7 @@ function printIssueCard(issue: CommitDeltaIssue, isPotential: boolean): void {
 type TaggedIssue = CommitDeltaIssue & { isPotential: boolean };
 
 function printIssuesList(issues: TaggedIssue[]): void {
-  printSection("Issues");
+  printSection("Issues", issues.length, "issue");
   if (issues.length === 0) {
     console.log(ansis.dim("  No issues."));
     return;
@@ -337,8 +345,6 @@ function formatFileDelta(
 }
 
 function printFilesList(files: FileDeltaAnalysis[]): void {
-  printSection("Files");
-
   // Filter to only files with any delta change
   const changed = files.filter((f) => {
     const q = f.quality;
@@ -352,6 +358,8 @@ function printFilesList(files: FileDeltaAnalysis[]): void {
       (c && c.deltaCoverage)
     );
   });
+
+  printSection("Files", changed.length, "file");
 
   if (changed.length === 0) {
     console.log(ansis.dim("  No files with metric changes."));
@@ -392,6 +400,7 @@ function printFilesList(files: FileDeltaAnalysis[]): void {
 export function registerPullRequestCommand(program: Command) {
   program
     .command("pull-request")
+    .alias("pr")
     .description("Show details and analysis for a specific pull request")
     .argument("<provider>", "git provider (gh, gl, or bb)")
     .argument("<organization>", "organization name")

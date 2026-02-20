@@ -1,36 +1,44 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import {
+  subSeconds,
+  subMinutes,
+  subHours,
+  subDays,
+  startOfDay,
+  addHours,
+  isSameDay,
+} from "date-fns";
 import { formatFriendlyDate, printPaginationWarning } from "./output";
-import dayjs from "dayjs";
 
 vi.spyOn(console, "log").mockImplementation(() => {});
 
 describe("formatFriendlyDate", () => {
   it("should return 'Just now' for dates less than a minute ago", () => {
-    const now = dayjs().subtract(30, "second").toISOString();
+    const now = subSeconds(new Date(), 30).toISOString();
     expect(formatFriendlyDate(now)).toBe("Just now");
   });
 
   it("should return minutes ago for dates within the last hour", () => {
-    const thirtyMinAgo = dayjs().subtract(30, "minute").toISOString();
+    const thirtyMinAgo = subMinutes(new Date(), 30).toISOString();
     const result = formatFriendlyDate(thirtyMinAgo);
     expect(result).toMatch(/^\d+ min ago$/);
   });
 
   it("should return hours ago for dates earlier today", () => {
-    const threeHoursAgo = dayjs().subtract(3, "hour");
-    // Only test if still same day
-    if (threeHoursAgo.isSame(dayjs(), "day")) {
+    const threeHoursAgo = subHours(new Date(), 3);
+    // Only test if still the same calendar day
+    if (isSameDay(threeHoursAgo, new Date())) {
       const result = formatFriendlyDate(threeHoursAgo.toISOString());
       expect(result).toMatch(/^\d+h ago$/);
     }
   });
 
   it("should return 'Yesterday' for dates from yesterday", () => {
-    const yesterday = dayjs().subtract(1, "day").startOf("day").add(12, "hour");
+    const yesterday = addHours(startOfDay(subDays(new Date(), 1)), 12);
     expect(formatFriendlyDate(yesterday.toISOString())).toBe("Yesterday");
   });
 
-  it("should return YYYY-MM-DD for older dates", () => {
+  it("should return yyyy-MM-dd for older dates", () => {
     expect(formatFriendlyDate("2024-01-15T10:00:00Z")).toBe("2024-01-15");
   });
 

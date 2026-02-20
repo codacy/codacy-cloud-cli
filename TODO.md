@@ -152,6 +152,64 @@ For the Issues List in particular, showing them in a table will not work. So fol
 - [x] 2026-02-18 Write tests for `pull-request` command
 
 
+### Issues Command
+> Search for issues in a repository.
+> API Endpoints to use: 
+- [searchRepositoryIssues](https://api.codacy.com/api/api-docs#searchrepositoryissues)
+- [issuesOverview](https://api.codacy.com/api/api-docs#issuesoverview)
+
+Allow these parameters to filter the issues:
+- branch: branch name
+- patterns: comma separated list of pattern IDs
+- severity: comma separated list of severity levels
+- category: comma separated list of category names
+- language: comma separated list of language names
+- tags: comma separated list of tag names
+- author: comma separated list of author emails
+- overview: boolean to show the overview of the issues instead of the list
+
+Use the same formatting as the `pull-request` command for the issues list. 
+
+If `overview` parameter is provided, show the totals by language, category, severity, tag, and author.
+
+Both endpoints accept the same body parameters for filtering (`SearchRepositoryIssuesBody`).
+
+- [x] 2026-02-19 Implement `issues` command - search for issues in a repository
+- [x] 2026-02-19 Write tests for `issues` command
+
+
+### Security Findings Command
+> Show security findings for a repository or an organization.
+> API Endpoints to use: 
+- [searchSecurityItems](https://api.codacy.com/api/api-docs#searchsecurityitems)
+
+For this command the repository part is optional.
+- codacy findings gh my-org my-repo // list findings for a repository
+- codacy findings gh my-org // list findings for the organization
+
+Allow these parameters to filter the findings:
+- search: search term to filter the findings
+- severities: comma separated list of severity (called priority in the API) names
+- statuses: comma separated list of status names
+- categories: comma separated list of category names
+- scan-types: comma separated list of scan types
+- dast-targets: comma separated list of DAST target URLs
+
+Use a similar formatting as the `issues` command, with the same rules (totals, pagination limits, etc.). This is the format:
+```
+--------------------------------
+
+{Severity/Priority} | {SecurityCategory} {ScanType} | {Optional: Likelihood} {Optional: EffortToFix} | {Optional: Repository Name when seeing organization findings}
+{Finding Title}
+
+{Status} {DueAt} | {Optional: CVE or CWE} {Optional: AffectedVersion -> FixedVersion} {Optional: Application} {Optional: AffectedTargets}  
+
+--------------------------------
+```
+
+- [x] 2026-02-20 Implement `findings` command - show security findings for a repository or an organization
+- [x] 2026-02-20 Write tests for `findings` command
+
 ## Deployment & CI
 
 - [x] 2026-02-18 Make the project ready to deploy to npm and be executed as a CLI tool by running `npm install -g`
@@ -175,3 +233,5 @@ For the Issues List in particular, showing them in a table will not work. So fol
 - 2026-02-18: npm package ready — bin, files, prepublishOnly, tsconfig.build.json, engines
 - 2026-02-18: CI pipelines — build+test on push/PR (Node 18/20/22), publish to npm on release
 - 2026-02-18: CLI help examples added to all commands
+- 2026-02-19: `issues` command implemented with tests (11 tests) — card-style list with filters, `--overview` mode with count tables by category/severity/language/tag/author
+- 2026-02-20: `findings` command implemented with tests (13 tests) — card-style list for repo or org-wide, filters by severity/status/category/scan-type/DAST targets, CVE/CWE/version display
