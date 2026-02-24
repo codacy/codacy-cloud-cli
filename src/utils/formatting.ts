@@ -3,6 +3,84 @@ import numeral from "numeral";
 import pluralize from "pluralize";
 import { PullRequestWithAnalysis } from "../api/client/models/PullRequestWithAnalysis";
 import { AnalysisResultReason } from "../api/client/models/AnalysisResultReason";
+import { CommitIssue } from "../api/client/models/CommitIssue";
+import { SeverityLevel } from "../api/client/models/SeverityLevel";
+import { Pattern } from "../api/client/models/Pattern";
+import { CodeBlockLine } from "../api/client/models/CodeBlockLine";
+
+export const SEVERITY_DISPLAY: Record<string, string> = {
+  Error: "Critical",
+  High: "High",
+  Warning: "Medium",
+  Info: "Minor",
+};
+
+export function colorSeverity(level: SeverityLevel): string {
+  const label = SEVERITY_DISPLAY[level] ?? level;
+  switch (level) {
+    case "Error":
+      return ansis.red(label);
+    case "High":
+      return ansis.hex("#FF8C00")(label);
+    case "Warning":
+      return ansis.yellow(label);
+    case "Info":
+      return ansis.blue(label);
+    default:
+      return label;
+  }
+}
+
+/**
+ * Print a single issue card shared by the `issues` and `pull-request` commands.
+ * The issue ID (resultDataId) is appended at the end of the first line in a
+ * very dim color so it doesn't draw attention but is easy to copy.
+ */
+export function printIssueCard(
+  issue: CommitIssue,
+  options?: { isPotential?: boolean },
+): void {
+  const pattern = issue.patternInfo;
+  const separator = ansis.dim("─".repeat(40));
+
+  console.log();
+
+  // Line 1: Severity | Category SubCategory? | POTENTIAL?   <dim id>
+  const severity = colorSeverity(pattern.severityLevel);
+  const subCat = pattern.subCategory ? ` ${pattern.subCategory}` : "";
+  const potentialTag = options?.isPotential
+    ? ` ${ansis.dim("|")} ${ansis.dim("POTENTIAL")}`
+    : "";
+  const id = ansis.hex("#555555")(`#${issue.resultDataId}`);
+  console.log(
+    `${severity} ${ansis.dim("|")} ${pattern.category}${subCat}${potentialTag}  ${id}`,
+  );
+
+  // Issue message
+  console.log(issue.message);
+  console.log();
+
+  // File path : line number
+  console.log(ansis.dim(`${issue.filePath}:${issue.lineNumber}`));
+
+  // Line content (trimmed)
+  if (issue.lineText) {
+    console.log(ansis.dim(issue.lineText.trim()));
+  }
+
+  // False positive detection
+  if (
+    issue.falsePositiveProbability !== undefined &&
+    issue.falsePositiveProbability >= issue.falsePositiveThreshold
+  ) {
+    const reason = issue.falsePositiveReason || "No reason provided";
+    console.log();
+    console.log(ansis.yellow(`Potential false positive: ${reason}`));
+  }
+
+  console.log();
+  console.log(separator);
+}
 
 export type GateStatusMap = {
   issues?: boolean;
@@ -159,4 +237,120 @@ export function formatPrIssues(
   const fixI = pr.fixedIssues !== undefined ? `-${pr.fixedIssues}` : "N/A";
   const newColored = colorByGate(newI, passing);
   return `${newColored} / ${ansis.dim(fixI)}`;
+}
+
+/**
+ * Format and print the ±5 line code context around the issue.
+ * The issue line is shown in bold; an optional suggestion is shown
+ * in green+bold on the same line number directly below it.
+ */
+export function printFileContext(
+  lines: CodeBlockLine[],
+  issueLine: number,
+  suggestion: string | undefined,
+): void {
+  const maxLineNum = Math.max(...lines.map((l) => l.number), issueLine + 5);
+  const width = String(maxLineNum).length;
+
+  for (const line of lines) {
+    const num = String(line.number).padStart(width, " ");
+    const content = line.content;
+    if (line.number === issueLine) {
+      console.log(ansis.bold(`${num} | ${content}`));
+      if (suggestion) {
+        console.log(ansis.bold(ansis.green(`${num} | ${suggestion}`)));
+      }
+    } else {
+      console.log(ansis.dim(`${num} | ${content}`));
+    }
+  }
+}
+
+/**
+ * Print the full detail view for a single quality issue, including code context
+ * and pattern documentation. Used by both the `issue` command and the
+ * `pull-request --issue` option.
+ */
+export function printIssueDetail(
+  issue: CommitIssue,
+  pattern: Pattern | null,
+  lines: CodeBlockLine[] | null,
+): void {
+  const p = issue.patternInfo;
+
+  console.log();
+
+  // Header: Severity | Category SubCategory
+  const severity = colorSeverity(p.severityLevel);
+  const subCat = p.subCategory ? ` ${ansis.dim(p.subCategory)}` : "";
+  console.log(`${severity} ${ansis.dim("|")} ${p.category}${subCat}`);
+
+  // Message
+  console.log(issue.message);
+  console.log();
+
+  // File path : line
+  console.log(ansis.dim(`${issue.filePath}:${issue.lineNumber}`));
+  console.log();
+
+  // Extended code context (or fall back to single line from issue)
+  if (lines && lines.length > 0) {
+    printFileContext(lines, issue.lineNumber, issue.suggestion);
+  } else {
+    // Fallback: just show the lineText we already have
+    const num = String(issue.lineNumber).padStart(4, " ");
+    console.log(ansis.bold(`${num} | ${issue.lineText}`));
+    if (issue.suggestion) {
+      console.log(ansis.bold(ansis.green(`${num} | ${issue.suggestion}`)));
+    }
+  }
+
+  // False positive warning
+  if (
+    issue.falsePositiveProbability !== undefined &&
+    issue.falsePositiveProbability >= issue.falsePositiveThreshold
+  ) {
+    const reason = issue.falsePositiveReason || "No reason provided";
+    console.log();
+    console.log(ansis.yellow(`Potential false positive: ${reason}`));
+  }
+
+  if (!pattern) {
+    return;
+  }
+
+  // Pattern description
+  if (pattern.description) {
+    console.log();
+    console.log(pattern.description);
+  }
+
+  // Rationale
+  if (pattern.rationale) {
+    console.log();
+    console.log(ansis.bold("Why is this a problem?"));
+    console.log(pattern.rationale);
+  }
+
+  // Solution
+  if (pattern.solution) {
+    console.log();
+    console.log(ansis.bold("How to fix it?"));
+    console.log(pattern.solution);
+  }
+
+  // Tags
+  if (pattern.tags && pattern.tags.length > 0) {
+    console.log();
+    console.log(ansis.dim(`Tags: ${pattern.tags.join(", ")}`));
+  }
+
+  // Detected by
+  console.log();
+  const toolName = issue.toolInfo.name;
+  const patternRef = pattern.title
+    ? `${pattern.title} (${pattern.id})`
+    : pattern.id;
+  console.log(ansis.dim(`Detected by: ${toolName}`));
+  console.log(ansis.dim(patternRef));
 }

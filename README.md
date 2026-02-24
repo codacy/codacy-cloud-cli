@@ -162,6 +162,28 @@ Displays findings as cards sorted by priority (Critical first). Each card shows:
 
 When browsing org-wide (no repository argument), the repository name is shown on each card.
 
+#### `issue <provider> <organization> <repository> <issueId>`
+
+Show full details of a single quality issue, including extended code context and pattern documentation.
+
+```bash
+codacy-cloud-cli issue gh my-org my-repo 12345
+codacy-cloud-cli issue gh my-org my-repo 12345 --output json
+```
+
+| Argument | Description |
+|---|---|
+| `provider` | Git provider: `gh` (GitHub), `gl` (GitLab), or `bb` (Bitbucket) |
+| `organization` | Organization name on the provider |
+| `repository` | Repository name |
+| `issueId` | Issue ID shown at the bottom of each card in the `issues` command output |
+
+Displays:
+- **Header** — severity, category, subcategory, and issue message
+- **File context** — ±5 lines around the issue with the issue line highlighted; suggested fix shown inline if available
+- **False positive warning** — if the issue is likely a false positive
+- **Pattern documentation** — full description, rationale ("Why is this a problem?"), solution ("How to fix it?"), tags, and tool/pattern reference
+
 #### `pull-request <provider> <organization> <repository> <prNumber>`
 
 Show details, analysis status, issues, and changed files for a specific pull request.

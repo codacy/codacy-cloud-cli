@@ -20,16 +20,19 @@ import {
   formatDelta,
   formatPrCoverage,
   formatPrIssues,
+  printIssueCard,
+  printIssueDetail,
   GateStatusMap,
 } from "../utils/formatting";
 import { AnalysisService } from "../api/client/services/AnalysisService";
+import { ToolsService } from "../api/client/services/ToolsService";
+import { FileService } from "../api/client/services/FileService";
 import { PullRequestWithAnalysis } from "../api/client/models/PullRequestWithAnalysis";
 import { AnalysisResultReason } from "../api/client/models/AnalysisResultReason";
 import { CommitDeltaIssue } from "../api/client/models/CommitDeltaIssue";
 import { FileDeltaAnalysis } from "../api/client/models/FileDeltaAnalysis";
 import { PullRequestIssuesResponse } from "../api/client/models/PullRequestIssuesResponse";
 import { FileAnalysisListResponse } from "../api/client/models/FileAnalysisListResponse";
-import { SeverityLevel } from "../api/client/models/SeverityLevel";
 
 const SEVERITY_ORDER: Record<string, number> = {
   Error: 0,
@@ -37,29 +40,6 @@ const SEVERITY_ORDER: Record<string, number> = {
   Warning: 2,
   Info: 3,
 };
-
-const SEVERITY_DISPLAY: Record<string, string> = {
-  Error: "Critical",
-  High: "High",
-  Warning: "Medium",
-  Info: "Minor",
-};
-
-function colorSeverity(level: SeverityLevel): string {
-  const label = SEVERITY_DISPLAY[level] ?? level;
-  switch (level) {
-    case "Error":
-      return ansis.red(label);
-    case "High":
-      return ansis.hex("#FF8C00")(label);
-    case "Warning":
-      return ansis.yellow(label);
-    case "Info":
-      return ansis.blue(label);
-    default:
-      return label;
-  }
-}
 
 /**
  * Map a gate name to a human-readable description including its threshold.
@@ -263,50 +243,6 @@ function printAnalysis(pr: PullRequestWithAnalysis): void {
   console.log(table.toString());
 }
 
-function printIssueCard(issue: CommitDeltaIssue, isPotential: boolean): void {
-  const ci = issue.commitIssue;
-  const pattern = ci.patternInfo;
-
-  const separator = ansis.dim("─".repeat(40));
-
-  console.log();
-
-  // Severity | Category SubCategory? | POTENTIAL (if applicable)
-  const severity = colorSeverity(pattern.severityLevel);
-  const subCat = pattern.subCategory ? ` ${pattern.subCategory}` : "";
-  const potentialTag = isPotential
-    ? ` ${ansis.dim("|")} ${ansis.dim("POTENTIAL")}`
-    : "";
-  console.log(
-    `${severity} ${ansis.dim("|")} ${pattern.category}${subCat}${potentialTag}`,
-  );
-
-  // Issue message
-  console.log(ci.message);
-  console.log();
-
-  // File path : line number
-  console.log(ansis.dim(`${ci.filePath}:${ci.lineNumber}`));
-
-  // Line content (trimmed)
-  if (ci.lineText) {
-    console.log(ansis.dim(ci.lineText.trim()));
-  }
-
-  // False positive detection
-  if (
-    ci.falsePositiveProbability !== undefined &&
-    ci.falsePositiveProbability >= ci.falsePositiveThreshold
-  ) {
-    const reason = ci.falsePositiveReason || "No reason provided";
-    console.log();
-    console.log(ansis.yellow(`Potential false positive: ${reason}`));
-  }
-
-  console.log();
-  console.log(separator);
-}
-
 type TaggedIssue = CommitDeltaIssue & { isPotential: boolean };
 
 function printIssuesList(issues: TaggedIssue[]): void {
@@ -323,7 +259,7 @@ function printIssuesList(issues: TaggedIssue[]): void {
     return aOrder - bOrder;
   });
   for (const issue of sorted) {
-    printIssueCard(issue, issue.isPotential);
+    printIssueCard(issue.commitIssue, { isPotential: issue.isPotential });
   }
 }
 
@@ -397,6 +333,35 @@ function printFilesList(files: FileDeltaAnalysis[]): void {
   console.log(table.toString());
 }
 
+/**
+ * Fetch all issues for a PR by paginating through the API.
+ * Used by the --issue option to find a specific issue by resultDataId.
+ */
+async function fetchAllPrIssues(
+  provider: string,
+  organization: string,
+  repository: string,
+  prNumber: number,
+  onlyPotential: boolean,
+): Promise<CommitDeltaIssue[]> {
+  const allIssues: CommitDeltaIssue[] = [];
+  let cursor: string | undefined;
+  do {
+    const response = (await AnalysisService.listPullRequestIssues(
+      provider,
+      organization,
+      repository,
+      prNumber,
+      "new",
+      onlyPotential,
+      cursor,
+    )) as any;
+    allIssues.push(...((response.data as CommitDeltaIssue[]) || []));
+    cursor = response.pagination?.cursor;
+  } while (cursor);
+  return allIssues;
+}
+
 export function registerPullRequestCommand(program: Command) {
   program
     .command("pull-request")
@@ -406,12 +371,17 @@ export function registerPullRequestCommand(program: Command) {
     .argument("<organization>", "organization name")
     .argument("<repository>", "repository name")
     .argument("<prNumber>", "pull request number")
+    .option(
+      "-i, --issue <issueId>",
+      "show full details for a specific issue in this PR (use the #id shown on issue cards)",
+    )
     .addHelpText(
       "after",
       `
 Examples:
   $ codacy-cloud-cli pull-request gh my-org my-repo 42
-  $ codacy-cloud-cli pull-request gh my-org my-repo 42 --output json`,
+  $ codacy-cloud-cli pull-request gh my-org my-repo 42 --output json
+  $ codacy-cloud-cli pull-request gh my-org my-repo 42 --issue 9901`,
     )
     .action(async function (
       this: Command,
@@ -429,6 +399,79 @@ Examples:
         }
 
         const format = getOutputFormat(this);
+        const issueIdStr: string | undefined = this.opts().issue;
+
+        // --issue <id>: fetch all PR issues, find by resultDataId, show detail
+        if (issueIdStr !== undefined) {
+          const issueId = parseInt(issueIdStr, 10);
+          if (isNaN(issueId)) {
+            console.error(ansis.red("Error: --issue must be a number."));
+            process.exit(1);
+          }
+
+          const spinner = ora("Fetching issue details...").start();
+
+          const [allNew, allPotential] = await Promise.all([
+            fetchAllPrIssues(
+              provider,
+              organization,
+              repository,
+              prNumber,
+              false,
+            ),
+            fetchAllPrIssues(
+              provider,
+              organization,
+              repository,
+              prNumber,
+              true,
+            ),
+          ]);
+
+          const found = [...allNew, ...allPotential]
+            .filter((i) => i.deltaType === "Added")
+            .find((i) => i.commitIssue.resultDataId === issueId);
+
+          if (!found) {
+            spinner.fail(`Issue #${issueId} not found in this pull request.`);
+            process.exit(1);
+          }
+
+          const issue = found.commitIssue;
+          const lineNumber = issue.lineNumber;
+          const startLine = Math.max(1, lineNumber - 5);
+          const endLine = lineNumber + 5;
+
+          const [patternResponse, fileContentResponse] = await Promise.all([
+            ToolsService.getPattern(
+              issue.toolInfo.uuid,
+              issue.patternInfo.id,
+            ).catch(() => null),
+            FileService.getFileContent(
+              provider,
+              organization,
+              repository,
+              encodeURIComponent(issue.filePath),
+              startLine,
+              endLine,
+              issue.commitInfo?.sha,
+            ).catch(() => null),
+          ]);
+
+          spinner.stop();
+
+          const pattern = patternResponse?.data ?? null;
+          const lines = fileContentResponse?.data ?? null;
+
+          if (format === "json") {
+            printJson({ issue, pattern, lines });
+            return;
+          }
+
+          printIssueDetail(issue, pattern, lines);
+          return;
+        }
+
         const spinner = ora("Fetching pull request details...").start();
 
         const [

@@ -2,8 +2,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Command } from "commander";
 import { registerPullRequestCommand } from "./pull-request";
 import { AnalysisService } from "../api/client/services/AnalysisService";
+import { ToolsService } from "../api/client/services/ToolsService";
+import { FileService } from "../api/client/services/FileService";
 
 vi.mock("../api/client/services/AnalysisService");
+vi.mock("../api/client/services/ToolsService");
+vi.mock("../api/client/services/FileService");
 vi.spyOn(console, "log").mockImplementation(() => {});
 
 function createProgram(): Command {
@@ -213,6 +217,38 @@ const mockFiles = {
     },
   ],
 };
+
+const mockPattern = {
+  id: "sql-injection",
+  title: "SQL Injection",
+  category: "Security",
+  subCategory: "Injection",
+  severityLevel: "Error",
+  level: "Error",
+  enabled: true,
+  parameters: [],
+  description: "Detects SQL injection vulnerabilities.",
+  rationale: "Attackers can manipulate queries to access unauthorized data.",
+  solution: "Use parameterized queries or prepared statements.",
+  tags: ["security", "owasp-a1"],
+};
+
+const mockFileLines = [
+  { number: 15, content: "function getUser(id: string) {" },
+  { number: 16, content: "  const conn = db.connect();" },
+  { number: 17, content: "  // TODO: fix this" },
+  { number: 18, content: "  try {" },
+  { number: 19, content: "    const result = await" },
+  {
+    number: 20,
+    content: "  db.query(`SELECT * FROM users WHERE id = ${id}`);",
+  },
+  { number: 21, content: "  } catch (e) {" },
+  { number: 22, content: "    throw e;" },
+  { number: 23, content: "  }" },
+  { number: 24, content: "  return result;" },
+  { number: 25, content: "}" },
+];
 
 function getAllOutput(): string {
   return (console.log as ReturnType<typeof vi.fn>).mock.calls
@@ -739,5 +775,160 @@ describe("pull-request command", () => {
     ).rejects.toThrow("process.exit called");
 
     mockExit.mockRestore();
+  });
+
+  it("should show issue detail when --issue <id> is specified", async () => {
+    // fetchAllPrIssues makes two paginated calls (non-potential + potential)
+    vi.mocked(AnalysisService.listPullRequestIssues)
+      .mockResolvedValueOnce({ data: mockNewIssues.data, pagination: undefined } as any)
+      .mockResolvedValueOnce({ data: mockPotentialIssues.data, pagination: undefined } as any);
+    vi.mocked(ToolsService.getPattern).mockResolvedValue({ data: mockPattern } as any);
+    vi.mocked(FileService.getFileContent).mockResolvedValue({ data: mockFileLines } as any);
+
+    const program = createProgram();
+    // Issue with resultDataId=3 is the SQL injection issue in mockNewIssues
+    await program.parseAsync([
+      "node",
+      "test",
+      "pull-request",
+      "gh",
+      "test-org",
+      "test-repo",
+      "42",
+      "--issue",
+      "3",
+    ]);
+
+    expect(AnalysisService.listPullRequestIssues).toHaveBeenCalledTimes(2);
+    expect(ToolsService.getPattern).toHaveBeenCalledWith("tool-2", "sql-injection");
+    expect(FileService.getFileContent).toHaveBeenCalledWith(
+      "gh",
+      "test-org",
+      "test-repo",
+      "src%2Fauth.ts",
+      15,
+      25,
+    );
+
+    const output = getAllOutput();
+    expect(output).toContain("Potential SQL injection vulnerability");
+    expect(output).toContain("src/auth.ts:20");
+    expect(output).toContain("Detects SQL injection vulnerabilities.");
+    expect(output).toContain("Why is this a problem?");
+    expect(output).toContain("Attackers can manipulate queries");
+    expect(output).toContain("How to fix it?");
+    expect(output).toContain("Use parameterized queries or prepared statements.");
+    expect(output).toContain("security");
+    expect(output).toContain("Detected by: Semgrep");
+    expect(output).toContain("SQL Injection (sql-injection)");
+  });
+
+  it("should fail with error when --issue <id> is not found in the PR", async () => {
+    vi.mocked(AnalysisService.listPullRequestIssues)
+      .mockResolvedValueOnce({ data: mockNewIssues.data, pagination: undefined } as any)
+      .mockResolvedValueOnce({ data: mockPotentialIssues.data, pagination: undefined } as any);
+
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit called");
+    });
+
+    const program = createProgram();
+    // ID 999 does not exist in the mock issues
+    await expect(
+      program.parseAsync([
+        "node",
+        "test",
+        "pull-request",
+        "gh",
+        "test-org",
+        "test-repo",
+        "42",
+        "--issue",
+        "999",
+      ]),
+    ).rejects.toThrow("process.exit called");
+
+    mockExit.mockRestore();
+  });
+
+  it("should output JSON for --issue when --output json is specified", async () => {
+    vi.mocked(AnalysisService.listPullRequestIssues)
+      .mockResolvedValueOnce({ data: mockNewIssues.data, pagination: undefined } as any)
+      .mockResolvedValueOnce({ data: mockPotentialIssues.data, pagination: undefined } as any);
+    vi.mocked(ToolsService.getPattern).mockResolvedValue({ data: mockPattern } as any);
+    vi.mocked(FileService.getFileContent).mockResolvedValue({ data: mockFileLines } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "--output",
+      "json",
+      "pull-request",
+      "gh",
+      "test-org",
+      "test-repo",
+      "42",
+      "--issue",
+      "3",
+    ]);
+
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringContaining('"Potential SQL injection vulnerability"'),
+    );
+  });
+
+  it("should paginate through all PR issues when looking for --issue <id>", async () => {
+    // Promise.all starts both fetchAllPrIssues(false) and fetchAllPrIssues(true) concurrently,
+    // so the actual call order is:
+    //   1: (false, undefined) — non-potential page 1
+    //   2: (true, undefined)  — potential page 1 (started concurrently)
+    //   3: (false, "page2-cursor") — non-potential page 2 (after page 1 resolves)
+    const page1NonPotential = {
+      data: [mockNewIssues.data[0], mockNewIssues.data[1]], // IDs 1 and 2
+      pagination: { cursor: "page2-cursor", limit: 2, total: 3 },
+    };
+    const page2NonPotential = {
+      data: [mockNewIssues.data[2]], // ID 3 (the SQL injection)
+      pagination: undefined,
+    };
+
+    vi.mocked(AnalysisService.listPullRequestIssues)
+      .mockResolvedValueOnce(page1NonPotential as any)           // call 1: non-potential page 1
+      .mockResolvedValueOnce({ data: [], pagination: undefined } as any) // call 2: potential
+      .mockResolvedValueOnce(page2NonPotential as any);          // call 3: non-potential page 2
+
+    vi.mocked(ToolsService.getPattern).mockResolvedValue({ data: mockPattern } as any);
+    vi.mocked(FileService.getFileContent).mockResolvedValue({ data: mockFileLines } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "pull-request",
+      "gh",
+      "test-org",
+      "test-repo",
+      "42",
+      "--issue",
+      "3",
+    ]);
+
+    // Should have been called 3 times: 2 pages for non-potential + 1 for potential
+    expect(AnalysisService.listPullRequestIssues).toHaveBeenCalledTimes(3);
+    // 3rd call (non-potential page 2) should use the cursor from page 1
+    expect(AnalysisService.listPullRequestIssues).toHaveBeenNthCalledWith(
+      3,
+      "gh",
+      "test-org",
+      "test-repo",
+      42,
+      "new",
+      false,
+      "page2-cursor",
+    );
+
+    const output = getAllOutput();
+    expect(output).toContain("Potential SQL injection vulnerability");
   });
 });

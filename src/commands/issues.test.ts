@@ -16,7 +16,7 @@ function createProgram(): Command {
 const mockIssues = [
   {
     issueId: "issue-1",
-    resultDataId: 1,
+    resultDataId: 9901,
     filePath: "src/auth.ts",
     fileId: 1,
     patternInfo: {
@@ -36,7 +36,7 @@ const mockIssues = [
   },
   {
     issueId: "issue-2",
-    resultDataId: 2,
+    resultDataId: 9902,
     filePath: "src/utils.ts",
     fileId: 2,
     patternInfo: {
@@ -120,6 +120,9 @@ describe("issues command", () => {
     expect(output).toContain("src/auth.ts:20");
     expect(output).toContain("Unused variable 'helper'");
     expect(output).toContain("src/utils.ts:5");
+    // Each card shows the stable issue ID on the first line
+    expect(output).toContain("#9901");
+    expect(output).toContain("#9902");
   });
 
   it("should show 'No issues found' when there are no issues", async () => {

@@ -9,7 +9,7 @@ import {
   printJson,
   printPaginationWarning,
 } from "../utils/output";
-import { printSection } from "../utils/formatting";
+import { printSection, printIssueCard } from "../utils/formatting";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 import { CommitIssue } from "../api/client/models/CommitIssue";
 import { SeverityLevel } from "../api/client/models/SeverityLevel";
@@ -74,65 +74,6 @@ function normalizeCategory(input: string): string {
   return CATEGORY_NORMALIZE[key] ?? input;
 }
 
-const SEVERITY_DISPLAY: Record<string, string> = {
-  Error: "Critical",
-  High: "High",
-  Warning: "Medium",
-  Info: "Minor",
-};
-
-function colorSeverity(level: SeverityLevel): string {
-  const label = SEVERITY_DISPLAY[level] ?? level;
-  switch (level) {
-    case "Error":
-      return ansis.red(label);
-    case "High":
-      return ansis.hex("#FF8C00")(label);
-    case "Warning":
-      return ansis.yellow(label);
-    case "Info":
-      return ansis.blue(label);
-    default:
-      return label;
-  }
-}
-
-function printIssueCard(issue: CommitIssue): void {
-  const pattern = issue.patternInfo;
-  const separator = ansis.dim("─".repeat(40));
-
-  console.log();
-
-  // Severity | Category SubCategory?
-  const severity = colorSeverity(pattern.severityLevel);
-  const subCat = pattern.subCategory ? ` ${pattern.subCategory}` : "";
-  console.log(`${severity} ${ansis.dim("|")} ${pattern.category}${subCat}`);
-
-  // Issue message
-  console.log(issue.message);
-  console.log();
-
-  // File path : line number
-  console.log(ansis.dim(`${issue.filePath}:${issue.lineNumber}`));
-
-  // Line content (trimmed)
-  if (issue.lineText) {
-    console.log(ansis.dim(issue.lineText.trim()));
-  }
-
-  // False positive detection
-  if (
-    issue.falsePositiveProbability !== undefined &&
-    issue.falsePositiveProbability >= issue.falsePositiveThreshold
-  ) {
-    const reason = issue.falsePositiveReason || "No reason provided";
-    console.log();
-    console.log(ansis.yellow(`Potential false positive: ${reason}`));
-  }
-
-  console.log();
-  console.log(separator);
-}
 
 function printIssuesList(issues: CommitIssue[], total: number): void {
   printSection("Issues", total, "issue");
