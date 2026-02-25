@@ -8,6 +8,7 @@ import { registerPullRequestCommand } from "./commands/pull-request";
 import { registerIssuesCommand } from "./commands/issues";
 import { registerIssueCommand } from "./commands/issue";
 import { registerFindingsCommand } from "./commands/findings";
+import { registerFindingCommand } from "./commands/finding";
 
 const program = new Command();
 
@@ -30,5 +31,6 @@ registerPullRequestCommand(program);
 registerIssuesCommand(program);
 registerIssueCommand(program);
 registerFindingsCommand(program);
+registerFindingCommand(program);
 
 program.parse(process.argv);

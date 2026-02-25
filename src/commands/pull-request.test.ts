@@ -2,10 +2,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Command } from "commander";
 import { registerPullRequestCommand } from "./pull-request";
 import { AnalysisService } from "../api/client/services/AnalysisService";
+import { CoverageService } from "../api/client/services/CoverageService";
 import { ToolsService } from "../api/client/services/ToolsService";
 import { FileService } from "../api/client/services/FileService";
+import { RepositoryService } from "../api/client/services/RepositoryService";
 
 vi.mock("../api/client/services/AnalysisService");
+vi.mock("../api/client/services/CoverageService");
 vi.mock("../api/client/services/ToolsService");
 vi.mock("../api/client/services/FileService");
 vi.spyOn(console, "log").mockImplementation(() => {});
@@ -133,7 +136,7 @@ const mockNewIssues = {
         lineNumber: 20,
         message: "Potential SQL injection vulnerability",
         language: "TypeScript",
-        lineText: '  db.query(`SELECT * FROM users WHERE id = ${id}`);',
+        lineText: "  db.query(`SELECT * FROM users WHERE id = ${id}`);",
         falsePositiveThreshold: 0.3,
       },
       deltaType: "Added",
@@ -179,7 +182,8 @@ const mockFiles = {
         fileDataId: 1,
         path: "src/index.ts",
         language: "TypeScript",
-        gitProviderUrl: "https://github.com/test-org/test-repo/blob/abc123/src/index.ts",
+        gitProviderUrl:
+          "https://github.com/test-org/test-repo/blob/abc123/src/index.ts",
         ignored: false,
       },
       quality: {
@@ -201,7 +205,8 @@ const mockFiles = {
         fileDataId: 2,
         path: "src/utils.ts",
         language: "TypeScript",
-        gitProviderUrl: "https://github.com/test-org/test-repo/blob/abc123/src/utils.ts",
+        gitProviderUrl:
+          "https://github.com/test-org/test-repo/blob/abc123/src/utils.ts",
         ignored: false,
       },
       quality: {
@@ -260,6 +265,13 @@ describe("pull-request command", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.CODACY_API_TOKEN = "test-token";
+    // Default CoverageService mocks so existing tests don't break
+    vi.mocked(
+      CoverageService.getRepositoryPullRequestFilesCoverage,
+    ).mockResolvedValue({ data: [] } as any);
+    vi.mocked(RepositoryService.getPullRequestDiff).mockResolvedValue({
+      diff: "",
+    } as any);
   });
 
   it("should fetch and display PR details in table format", async () => {
@@ -363,9 +375,9 @@ describe("pull-request command", () => {
     vi.mocked(AnalysisService.listPullRequestIssues)
       .mockResolvedValueOnce({ analyzed: true, data: [] } as any)
       .mockResolvedValueOnce({ analyzed: true, data: [] } as any);
-    vi.mocked(AnalysisService.listPullRequestFiles).mockResolvedValue(
-      { data: [] } as any,
-    );
+    vi.mocked(AnalysisService.listPullRequestFiles).mockResolvedValue({
+      data: [],
+    } as any);
 
     const program = createProgram();
     await program.parseAsync([
@@ -414,9 +426,9 @@ describe("pull-request command", () => {
     vi.mocked(AnalysisService.listPullRequestIssues)
       .mockResolvedValueOnce({ analyzed: true, data: [] } as any)
       .mockResolvedValueOnce({ analyzed: true, data: [] } as any);
-    vi.mocked(AnalysisService.listPullRequestFiles).mockResolvedValue(
-      { data: [] } as any,
-    );
+    vi.mocked(AnalysisService.listPullRequestFiles).mockResolvedValue({
+      data: [],
+    } as any);
 
     const program = createProgram();
     await program.parseAsync([
@@ -471,9 +483,9 @@ describe("pull-request command", () => {
     vi.mocked(AnalysisService.listPullRequestIssues)
       .mockResolvedValueOnce({ analyzed: true, data: [] } as any)
       .mockResolvedValueOnce({ analyzed: true, data: [] } as any);
-    vi.mocked(AnalysisService.listPullRequestFiles).mockResolvedValue(
-      { data: [] } as any,
-    );
+    vi.mocked(AnalysisService.listPullRequestFiles).mockResolvedValue({
+      data: [],
+    } as any);
 
     const program = createProgram();
     await program.parseAsync([
@@ -572,9 +584,9 @@ describe("pull-request command", () => {
     vi.mocked(AnalysisService.listPullRequestIssues)
       .mockResolvedValueOnce(unsortedIssues as any)
       .mockResolvedValueOnce({ analyzed: true, data: [] } as any);
-    vi.mocked(AnalysisService.listPullRequestFiles).mockResolvedValue(
-      { data: [] } as any,
-    );
+    vi.mocked(AnalysisService.listPullRequestFiles).mockResolvedValue({
+      data: [],
+    } as any);
 
     const program = createProgram();
     await program.parseAsync([
@@ -631,9 +643,9 @@ describe("pull-request command", () => {
     vi.mocked(AnalysisService.listPullRequestIssues)
       .mockResolvedValueOnce(mockNewIssues as any)
       .mockResolvedValueOnce({ analyzed: true, data: [] } as any);
-    vi.mocked(AnalysisService.listPullRequestFiles).mockResolvedValue(
-      { data: [] } as any,
-    );
+    vi.mocked(AnalysisService.listPullRequestFiles).mockResolvedValue({
+      data: [],
+    } as any);
 
     const program = createProgram();
     await program.parseAsync([
@@ -690,9 +702,9 @@ describe("pull-request command", () => {
     vi.mocked(AnalysisService.listPullRequestIssues)
       .mockResolvedValueOnce(issuesWithFalsePositive as any)
       .mockResolvedValueOnce({ analyzed: true, data: [] } as any);
-    vi.mocked(AnalysisService.listPullRequestFiles).mockResolvedValue(
-      { data: [] } as any,
-    );
+    vi.mocked(AnalysisService.listPullRequestFiles).mockResolvedValue({
+      data: [],
+    } as any);
 
     const program = createProgram();
     await program.parseAsync([
@@ -731,9 +743,9 @@ describe("pull-request command", () => {
     vi.mocked(AnalysisService.listPullRequestIssues)
       .mockResolvedValueOnce({ analyzed: true, data: [] } as any)
       .mockResolvedValueOnce({ analyzed: true, data: [] } as any);
-    vi.mocked(AnalysisService.listPullRequestFiles).mockResolvedValue(
-      { data: [] } as any,
-    );
+    vi.mocked(AnalysisService.listPullRequestFiles).mockResolvedValue({
+      data: [],
+    } as any);
 
     const program = createProgram();
     await program.parseAsync([
@@ -780,10 +792,20 @@ describe("pull-request command", () => {
   it("should show issue detail when --issue <id> is specified", async () => {
     // fetchAllPrIssues makes two paginated calls (non-potential + potential)
     vi.mocked(AnalysisService.listPullRequestIssues)
-      .mockResolvedValueOnce({ data: mockNewIssues.data, pagination: undefined } as any)
-      .mockResolvedValueOnce({ data: mockPotentialIssues.data, pagination: undefined } as any);
-    vi.mocked(ToolsService.getPattern).mockResolvedValue({ data: mockPattern } as any);
-    vi.mocked(FileService.getFileContent).mockResolvedValue({ data: mockFileLines } as any);
+      .mockResolvedValueOnce({
+        data: mockNewIssues.data,
+        pagination: undefined,
+      } as any)
+      .mockResolvedValueOnce({
+        data: mockPotentialIssues.data,
+        pagination: undefined,
+      } as any);
+    vi.mocked(ToolsService.getPattern).mockResolvedValue({
+      data: mockPattern,
+    } as any);
+    vi.mocked(FileService.getFileContent).mockResolvedValue({
+      data: mockFileLines,
+    } as any);
 
     const program = createProgram();
     // Issue with resultDataId=3 is the SQL injection issue in mockNewIssues
@@ -800,7 +822,10 @@ describe("pull-request command", () => {
     ]);
 
     expect(AnalysisService.listPullRequestIssues).toHaveBeenCalledTimes(2);
-    expect(ToolsService.getPattern).toHaveBeenCalledWith("tool-2", "sql-injection");
+    expect(ToolsService.getPattern).toHaveBeenCalledWith(
+      "tool-2",
+      "sql-injection",
+    );
     expect(FileService.getFileContent).toHaveBeenCalledWith(
       "gh",
       "test-org",
@@ -808,6 +833,7 @@ describe("pull-request command", () => {
       "src%2Fauth.ts",
       15,
       25,
+      undefined, // issue.commitInfo?.sha — undefined when commitInfo not present
     );
 
     const output = getAllOutput();
@@ -817,7 +843,9 @@ describe("pull-request command", () => {
     expect(output).toContain("Why is this a problem?");
     expect(output).toContain("Attackers can manipulate queries");
     expect(output).toContain("How to fix it?");
-    expect(output).toContain("Use parameterized queries or prepared statements.");
+    expect(output).toContain(
+      "Use parameterized queries or prepared statements.",
+    );
     expect(output).toContain("security");
     expect(output).toContain("Detected by: Semgrep");
     expect(output).toContain("SQL Injection (sql-injection)");
@@ -825,8 +853,14 @@ describe("pull-request command", () => {
 
   it("should fail with error when --issue <id> is not found in the PR", async () => {
     vi.mocked(AnalysisService.listPullRequestIssues)
-      .mockResolvedValueOnce({ data: mockNewIssues.data, pagination: undefined } as any)
-      .mockResolvedValueOnce({ data: mockPotentialIssues.data, pagination: undefined } as any);
+      .mockResolvedValueOnce({
+        data: mockNewIssues.data,
+        pagination: undefined,
+      } as any)
+      .mockResolvedValueOnce({
+        data: mockPotentialIssues.data,
+        pagination: undefined,
+      } as any);
 
     const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
       throw new Error("process.exit called");
@@ -853,10 +887,20 @@ describe("pull-request command", () => {
 
   it("should output JSON for --issue when --output json is specified", async () => {
     vi.mocked(AnalysisService.listPullRequestIssues)
-      .mockResolvedValueOnce({ data: mockNewIssues.data, pagination: undefined } as any)
-      .mockResolvedValueOnce({ data: mockPotentialIssues.data, pagination: undefined } as any);
-    vi.mocked(ToolsService.getPattern).mockResolvedValue({ data: mockPattern } as any);
-    vi.mocked(FileService.getFileContent).mockResolvedValue({ data: mockFileLines } as any);
+      .mockResolvedValueOnce({
+        data: mockNewIssues.data,
+        pagination: undefined,
+      } as any)
+      .mockResolvedValueOnce({
+        data: mockPotentialIssues.data,
+        pagination: undefined,
+      } as any);
+    vi.mocked(ToolsService.getPattern).mockResolvedValue({
+      data: mockPattern,
+    } as any);
+    vi.mocked(FileService.getFileContent).mockResolvedValue({
+      data: mockFileLines,
+    } as any);
 
     const program = createProgram();
     await program.parseAsync([
@@ -878,6 +922,283 @@ describe("pull-request command", () => {
     );
   });
 
+  // ─── Diff Coverage Summary ─────────────────────────────────────────────
+
+  it("should show Diff Coverage Summary when coverage data is available", async () => {
+    vi.mocked(AnalysisService.getRepositoryPullRequest).mockResolvedValue(
+      mockPrData as any,
+    );
+    vi.mocked(AnalysisService.listPullRequestIssues)
+      .mockResolvedValueOnce({ analyzed: true, data: [] } as any)
+      .mockResolvedValueOnce({ analyzed: true, data: [] } as any);
+    vi.mocked(AnalysisService.listPullRequestFiles).mockResolvedValue({
+      data: [],
+    } as any);
+    vi.mocked(
+      CoverageService.getRepositoryPullRequestFilesCoverage,
+    ).mockResolvedValue({
+      data: [
+        {
+          fileName: "src/api.ts",
+          coverage: 40,
+          diffLineHits: [
+            { lineNumber: "10", hits: 2 }, // covered
+            { lineNumber: "11", hits: 0 }, // uncovered
+            { lineNumber: "12", hits: 1 }, // covered
+            { lineNumber: "15", hits: 0 }, // uncovered
+            { lineNumber: "16", hits: 0 }, // uncovered
+          ],
+        },
+      ],
+    } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "pull-request",
+      "gh",
+      "test-org",
+      "test-repo",
+      "42",
+    ]);
+
+    const output = getAllOutput();
+    expect(output).toContain("Diff Coverage Summary");
+    expect(output).toContain("src/api.ts");
+    expect(output).toContain("40.0%"); // 2 covered out of 5 total
+    expect(output).toContain("11,15-16"); // compressed uncovered line ranges
+  });
+
+  it("should not show Diff Coverage Summary when there is no coverage data", async () => {
+    vi.mocked(AnalysisService.getRepositoryPullRequest).mockResolvedValue(
+      mockPrData as any,
+    );
+    vi.mocked(AnalysisService.listPullRequestIssues)
+      .mockResolvedValueOnce({ analyzed: true, data: [] } as any)
+      .mockResolvedValueOnce({ analyzed: true, data: [] } as any);
+    vi.mocked(AnalysisService.listPullRequestFiles).mockResolvedValue({
+      data: [],
+    } as any);
+    // Default beforeEach mock returns { data: [] } — no files with diffLineHits
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "pull-request",
+      "gh",
+      "test-org",
+      "test-repo",
+      "42",
+    ]);
+
+    const output = getAllOutput();
+    expect(output).not.toContain("Diff Coverage Summary");
+  });
+
+  // ─── Annotated Diff (--diff) ─────────────────────────────────────────────
+
+  // A minimal git diff with two inserted lines: line 3 (covered) and line 4 (uncovered)
+  const testDiffText = [
+    "diff --git a/src/index.ts b/src/index.ts",
+    "index abc1234..def5678 100644",
+    "--- a/src/index.ts",
+    "+++ b/src/index.ts",
+    "@@ -1,5 +1,7 @@",
+    " function foo() {",
+    "   const x = 1;",
+    "+  const y = 2;",
+    "+  const z = 3;",
+    "   return x;",
+    " }",
+  ].join("\n");
+
+  it("should fetch and display annotated diff with --diff", async () => {
+    vi.mocked(RepositoryService.getPullRequestDiff).mockResolvedValue({
+      diff: testDiffText,
+    } as any);
+    vi.mocked(
+      CoverageService.getRepositoryPullRequestFilesCoverage,
+    ).mockResolvedValue({
+      data: [
+        {
+          fileName: "src/index.ts",
+          coverage: 50,
+          diffLineHits: [
+            { lineNumber: "3", hits: 2 }, // covered
+            { lineNumber: "4", hits: 0 }, // uncovered
+          ],
+        },
+      ],
+    } as any);
+    vi.mocked(AnalysisService.listPullRequestIssues)
+      .mockResolvedValueOnce({ data: [], pagination: undefined } as any)
+      .mockResolvedValueOnce({ data: [], pagination: undefined } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "pull-request",
+      "gh",
+      "test-org",
+      "test-repo",
+      "42",
+      "--diff",
+    ]);
+
+    const output = getAllOutput();
+    expect(output).toContain("src/index.ts");
+    expect(output).toContain("✓"); // covered line symbol
+    expect(output).toContain("✘"); // uncovered line symbol
+  });
+
+  it("should show issue annotations (┃ and ↳) in --diff mode", async () => {
+    vi.mocked(RepositoryService.getPullRequestDiff).mockResolvedValue({
+      diff: testDiffText,
+    } as any);
+    vi.mocked(
+      CoverageService.getRepositoryPullRequestFilesCoverage,
+    ).mockResolvedValue({ data: [] } as any);
+    vi.mocked(AnalysisService.listPullRequestIssues)
+      .mockResolvedValueOnce({
+        data: [
+          {
+            commitIssue: {
+              issueId: "diff-issue-1",
+              resultDataId: 77,
+              filePath: "src/index.ts",
+              fileId: 1,
+              patternInfo: {
+                id: "p1",
+                title: "some rule",
+                category: "Error Prone",
+                severityLevel: "Error",
+                level: "Error",
+              },
+              toolInfo: { uuid: "t1", name: "Tool" },
+              lineNumber: 3, // same new-file line as the first inserted line
+              message: "An annotated issue",
+              language: "TypeScript",
+              lineText: "  const y = 2;",
+              falsePositiveThreshold: 0.5,
+            },
+            deltaType: "Added",
+          },
+        ],
+        pagination: undefined,
+      } as any)
+      .mockResolvedValueOnce({ data: [], pagination: undefined } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "pull-request",
+      "gh",
+      "test-org",
+      "test-repo",
+      "42",
+      "--diff",
+    ]);
+
+    const output = getAllOutput();
+    expect(output).toContain("┃");
+    expect(output).toContain("↳");
+    expect(output).toContain("An annotated issue");
+    expect(output).toContain("#77");
+  });
+
+  it("should show ellipsis for skipped lines in --diff mode", async () => {
+    // A diff with 15 context lines before an insert — creates a gap at the start
+    const bigDiffText = [
+      "diff --git a/src/big.ts b/src/big.ts",
+      "index abc..def 100644",
+      "--- a/src/big.ts",
+      "+++ b/src/big.ts",
+      "@@ -1,15 +1,16 @@",
+      " line1",
+      " line2",
+      " line3",
+      " line4",
+      " line5",
+      " line6",
+      " line7",
+      " line8",
+      " line9",
+      " line10",
+      "+new covered line",
+      " line11",
+      " line12",
+      " line13",
+      " line14",
+      " line15",
+    ].join("\n");
+
+    vi.mocked(RepositoryService.getPullRequestDiff).mockResolvedValue({
+      diff: bigDiffText,
+    } as any);
+    vi.mocked(
+      CoverageService.getRepositoryPullRequestFilesCoverage,
+    ).mockResolvedValue({
+      data: [
+        {
+          fileName: "src/big.ts",
+          coverage: 100,
+          diffLineHits: [{ lineNumber: "11", hits: 2 }], // line 11 in new file is the insert
+        },
+      ],
+    } as any);
+    vi.mocked(AnalysisService.listPullRequestIssues)
+      .mockResolvedValueOnce({ data: [], pagination: undefined } as any)
+      .mockResolvedValueOnce({ data: [], pagination: undefined } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "pull-request",
+      "gh",
+      "test-org",
+      "test-repo",
+      "42",
+      "--diff",
+    ]);
+
+    const output = getAllOutput();
+    expect(output).toContain("...");
+    expect(output).toContain("✓");
+  });
+
+  it("should output JSON for --diff when --output json is specified", async () => {
+    vi.mocked(RepositoryService.getPullRequestDiff).mockResolvedValue({
+      diff: testDiffText,
+    } as any);
+    vi.mocked(
+      CoverageService.getRepositoryPullRequestFilesCoverage,
+    ).mockResolvedValue({ data: [] } as any);
+    vi.mocked(AnalysisService.listPullRequestIssues)
+      .mockResolvedValueOnce({ data: [], pagination: undefined } as any)
+      .mockResolvedValueOnce({ data: [], pagination: undefined } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "--output",
+      "json",
+      "pull-request",
+      "gh",
+      "test-org",
+      "test-repo",
+      "42",
+      "--diff",
+    ]);
+
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('"diff"'));
+  });
+
   it("should paginate through all PR issues when looking for --issue <id>", async () => {
     // Promise.all starts both fetchAllPrIssues(false) and fetchAllPrIssues(true) concurrently,
     // so the actual call order is:
@@ -894,12 +1215,16 @@ describe("pull-request command", () => {
     };
 
     vi.mocked(AnalysisService.listPullRequestIssues)
-      .mockResolvedValueOnce(page1NonPotential as any)           // call 1: non-potential page 1
+      .mockResolvedValueOnce(page1NonPotential as any) // call 1: non-potential page 1
       .mockResolvedValueOnce({ data: [], pagination: undefined } as any) // call 2: potential
-      .mockResolvedValueOnce(page2NonPotential as any);          // call 3: non-potential page 2
+      .mockResolvedValueOnce(page2NonPotential as any); // call 3: non-potential page 2
 
-    vi.mocked(ToolsService.getPattern).mockResolvedValue({ data: mockPattern } as any);
-    vi.mocked(FileService.getFileContent).mockResolvedValue({ data: mockFileLines } as any);
+    vi.mocked(ToolsService.getPattern).mockResolvedValue({
+      data: mockPattern,
+    } as any);
+    vi.mocked(FileService.getFileContent).mockResolvedValue({
+      data: mockFileLines,
+    } as any);
 
     const program = createProgram();
     await program.parseAsync([

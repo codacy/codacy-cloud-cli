@@ -17,6 +17,7 @@ import {
   buildGateStatus,
   formatStandards,
   colorByGate,
+  colorSeverity,
   formatDelta,
   formatPrCoverage,
   formatPrIssues,
@@ -25,14 +26,18 @@ import {
   GateStatusMap,
 } from "../utils/formatting";
 import { AnalysisService } from "../api/client/services/AnalysisService";
+import { CoverageService } from "../api/client/services/CoverageService";
 import { ToolsService } from "../api/client/services/ToolsService";
 import { FileService } from "../api/client/services/FileService";
 import { PullRequestWithAnalysis } from "../api/client/models/PullRequestWithAnalysis";
 import { AnalysisResultReason } from "../api/client/models/AnalysisResultReason";
 import { CommitDeltaIssue } from "../api/client/models/CommitDeltaIssue";
 import { FileDeltaAnalysis } from "../api/client/models/FileDeltaAnalysis";
+import { FileDiffCoverage } from "../api/client/models/FileDiffCoverage";
 import { PullRequestIssuesResponse } from "../api/client/models/PullRequestIssuesResponse";
 import { FileAnalysisListResponse } from "../api/client/models/FileAnalysisListResponse";
+import { parseDiff } from "../utils/diff";
+import { RepositoryService } from "../api/client";
 
 const SEVERITY_ORDER: Record<string, number> = {
   Error: 0,
@@ -362,6 +367,274 @@ async function fetchAllPrIssues(
   return allIssues;
 }
 
+// ─── Diff Coverage Summary ─────────────────────────────────────────────────
+
+/**
+ * Compress a sorted array of integers into a range string.
+ * e.g. [1,2,3,5,6,10] → "1-3,5-6,10"
+ */
+function compressRanges(nums: number[]): string {
+  if (nums.length === 0) return "";
+  const ranges: string[] = [];
+  let start = nums[0];
+  let end = nums[0];
+  for (let i = 1; i < nums.length; i++) {
+    if (nums[i] === end + 1) {
+      end = nums[i];
+    } else {
+      ranges.push(start === end ? `${start}` : `${start}-${end}`);
+      start = end = nums[i];
+    }
+  }
+  ranges.push(start === end ? `${start}` : `${start}-${end}`);
+  return ranges.join(",");
+}
+
+function printDiffCoverageSummary(fileCoverageList: FileDiffCoverage[]): void {
+  const relevant = fileCoverageList.filter((f) => f.diffLineHits.length > 0);
+  if (relevant.length === 0) return;
+
+  printSection("Diff Coverage Summary");
+
+  for (const fc of relevant) {
+    const covered = fc.diffLineHits.filter((h) => h.hits > 0).length;
+    const total = fc.diffLineHits.length;
+    const pct = total > 0 ? (covered / total) * 100 : 0;
+    const pctStr = `${pct.toFixed(1)}%`;
+    const pctColored =
+      covered === total
+        ? ansis.green(pctStr)
+        : covered === 0
+          ? ansis.red(pctStr)
+          : ansis.yellow(pctStr);
+
+    const uncoveredNums = fc.diffLineHits
+      .filter((h) => h.hits === 0)
+      .map((h) => parseInt(h.lineNumber, 10))
+      .sort((a, b) => a - b);
+
+    const uncoveredPart =
+      uncoveredNums.length > 0
+        ? ` | Uncovered lines: ${ansis.red(compressRanges(uncoveredNums))}`
+        : "";
+
+    console.log(`${fc.fileName} | ${pctColored}${uncoveredPart}`);
+  }
+}
+
+// ─── Annotated Diff ─────────────────────────────────────────────────────────
+
+const DIFF_CONTEXT = 3;
+
+function severityColorFn(level: string): (s: string) => string {
+  switch (level) {
+    case "Error":
+      return (s) => ansis.red(s);
+    case "High":
+      return (s) => ansis.hex("#FF8C00")(s);
+    case "Warning":
+      return (s) => ansis.yellow(s);
+    case "Info":
+      return (s) => ansis.blue(s);
+    default:
+      return (s) => s;
+  }
+}
+
+function printDiffChange(
+  change: {
+    type: string;
+    content: string;
+    newLineNumber?: number;
+    oldLineNumber?: number;
+    lineNumber?: number;
+  },
+  numWidth: number,
+  hitMap: Map<number, number>,
+  issueMap: Map<number, TaggedIssue[]>,
+): void {
+  const isInsert = change.type === "insert";
+  const isDelete = change.type === "delete";
+  // InsertChange and DeleteChange both use `lineNumber`; NormalChange uses newLineNumber/oldLineNumber
+  const newLine: number | undefined = isInsert
+    ? change.lineNumber
+    : change.newLineNumber;
+  const oldLine: number | undefined = isDelete
+    ? change.lineNumber
+    : change.oldLineNumber;
+  const displayNum = newLine ?? oldLine ?? 0;
+  const numStr = String(displayNum).padStart(numWidth, " ");
+  const changeChar = isInsert ? "+" : isDelete ? "-" : "|";
+
+  const hits = newLine !== undefined ? hitMap.get(newLine) : undefined;
+  const isCovered = hits !== undefined && hits > 0;
+  const isUncovered = hits !== undefined && hits === 0;
+  const lineIssues = newLine !== undefined ? (issueMap.get(newLine) ?? []) : [];
+  const hasIssue = lineIssues.length > 0;
+
+  // Left symbol and number+pipe color — coverage takes priority over issue symbol
+  let leftSymbol: string;
+  let numPipeColor: (s: string) => string;
+
+  if (isCovered) {
+    leftSymbol = ansis.green("✓");
+    numPipeColor = (s) => ansis.green(s);
+  } else if (isUncovered) {
+    leftSymbol = ansis.red("✘");
+    numPipeColor = (s) => ansis.red(s);
+  } else if (hasIssue) {
+    const cf = severityColorFn(
+      lineIssues[0].commitIssue.patternInfo.severityLevel,
+    );
+    leftSymbol = cf("┃");
+    numPipeColor = cf;
+  } else {
+    leftSymbol = " ";
+    numPipeColor = (s) => ansis.dim(s);
+  }
+
+  // Content color: deleted = dark gray, inserted = white, unchanged = gray
+  const contentColor: (s: string) => string = isDelete
+    ? (s) => ansis.dim(ansis.gray(s))
+    : isInsert
+      ? (s) => s
+      : (s) => ansis.dim(s);
+
+  console.log(
+    `${leftSymbol}    ${numPipeColor(`${numStr} ${changeChar}`)} ${contentColor(change.content)}`,
+  );
+
+  // Issue annotations below the code line (severity-colored ┃)
+  for (const tagged of lineIssues) {
+    const issue = tagged.commitIssue;
+    const cf = severityColorFn(issue.patternInfo.severityLevel);
+    const pipe = cf("┃");
+    const subCat = issue.patternInfo.subCategory
+      ? ` ${issue.patternInfo.subCategory}`
+      : "";
+    const potentialTag = tagged.isPotential ? " Potential false positive" : "";
+    const header = `${colorSeverity(issue.patternInfo.severityLevel)} | ${issue.patternInfo.category}${subCat}${potentialTag} #${issue.resultDataId}`;
+    console.log(`${pipe}     ↳  ${header}`);
+    console.log(`${pipe}        ${issue.message}`);
+  }
+}
+
+function printAnnotatedDiff(
+  diffText: string,
+  fileCoverageList: FileDiffCoverage[],
+  issues: TaggedIssue[],
+): void {
+  // Build coverage maps: fileName → Map<newLineNumber, hits>
+  const coverageByFile = new Map<string, Map<number, number>>();
+  for (const fc of fileCoverageList) {
+    const hitMap = new Map<number, number>();
+    for (const hit of fc.diffLineHits) {
+      hitMap.set(parseInt(hit.lineNumber, 10), hit.hits);
+    }
+    coverageByFile.set(fc.fileName, hitMap);
+  }
+
+  // Build issue maps: filePath → Map<newLineNumber, TaggedIssue[]>
+  const issuesByFile = new Map<string, Map<number, TaggedIssue[]>>();
+  for (const tagged of issues) {
+    const fp = tagged.commitIssue.filePath;
+    const ln = tagged.commitIssue.lineNumber;
+    if (!issuesByFile.has(fp)) issuesByFile.set(fp, new Map());
+    const m = issuesByFile.get(fp)!;
+    if (!m.has(ln)) m.set(ln, []);
+    m.get(ln)!.push(tagged);
+  }
+
+  const { files } = parseDiff(diffText, true);
+  const sep = ansis.dim("─".repeat(79));
+
+  for (const file of files) {
+    const hitMap = coverageByFile.get(file.path) ?? new Map<number, number>();
+    const issueMap =
+      issuesByFile.get(file.path) ?? new Map<number, TaggedIssue[]>();
+
+    // Skip files with no relevant content (no coverage hits/misses, no issues)
+    const hasRelevant = file.hunks.some((hunk) =>
+      hunk.changes.some((c) => {
+        const newLine: number | undefined =
+          c.type === "insert"
+            ? (c as any).lineNumber
+            : c.type === "normal"
+              ? (c as any).newLineNumber
+              : undefined;
+        return (
+          newLine !== undefined &&
+          (hitMap.has(newLine) || issueMap.has(newLine))
+        );
+      }),
+    );
+    if (!hasRelevant) continue;
+
+    console.log(sep);
+    console.log(ansis.bold(file.path));
+
+    for (const hunk of file.hunks) {
+      const changes = hunk.changes;
+
+      // Determine max line number for consistent number-column width
+      let maxLine = 0;
+      for (const c of changes) {
+        const n =
+          (c as any).newLineNumber ??
+          (c as any).oldLineNumber ??
+          (c as any).lineNumber ??
+          0;
+        if (n > maxLine) maxLine = n;
+      }
+      const numWidth = Math.max(String(maxLine).length, 3);
+
+      // Find change indices that are "interesting" (have coverage or issues) + context
+      const interestingIdx = new Set<number>();
+      for (let i = 0; i < changes.length; i++) {
+        const c = changes[i];
+        const newLine: number | undefined =
+          c.type === "insert"
+            ? (c as any).lineNumber
+            : c.type === "normal"
+              ? (c as any).newLineNumber
+              : undefined;
+        if (
+          newLine !== undefined &&
+          (hitMap.has(newLine) || issueMap.has(newLine))
+        ) {
+          for (
+            let j = Math.max(0, i - DIFF_CONTEXT);
+            j <= Math.min(changes.length - 1, i + DIFF_CONTEXT);
+            j++
+          ) {
+            interestingIdx.add(j);
+          }
+        }
+      }
+
+      if (interestingIdx.size === 0) continue;
+
+      console.log(ansis.dim(hunk.content)); // @@ -x,y +a,b @@ context line
+
+      // Print changes with "..." for skipped stretches
+      let skipped = false;
+      for (let i = 0; i < changes.length; i++) {
+        if (!interestingIdx.has(i)) {
+          skipped = true;
+          continue;
+        }
+        if (skipped) {
+          console.log(ansis.dim("..."));
+          skipped = false;
+        }
+        printDiffChange(changes[i], numWidth, hitMap, issueMap);
+      }
+    }
+  }
+
+  console.log(sep);
+}
+
 export function registerPullRequestCommand(program: Command) {
   program
     .command("pull-request")
@@ -375,13 +648,18 @@ export function registerPullRequestCommand(program: Command) {
       "-i, --issue <issueId>",
       "show full details for a specific issue in this PR (use the #id shown on issue cards)",
     )
+    .option(
+      "-d, --diff",
+      "show annotated git diff with coverage hits/misses and new issues",
+    )
     .addHelpText(
       "after",
       `
 Examples:
   $ codacy-cloud-cli pull-request gh my-org my-repo 42
   $ codacy-cloud-cli pull-request gh my-org my-repo 42 --output json
-  $ codacy-cloud-cli pull-request gh my-org my-repo 42 --issue 9901`,
+  $ codacy-cloud-cli pull-request gh my-org my-repo 42 --issue 9901
+  $ codacy-cloud-cli pull-request gh my-org my-repo 42 --diff`,
     )
     .action(async function (
       this: Command,
@@ -400,6 +678,7 @@ Examples:
 
         const format = getOutputFormat(this);
         const issueIdStr: string | undefined = this.opts().issue;
+        const showDiff: boolean = !!this.opts().diff;
 
         // --issue <id>: fetch all PR issues, find by resultDataId, show detail
         if (issueIdStr !== undefined) {
@@ -472,6 +751,77 @@ Examples:
           return;
         }
 
+        // --diff: annotated git diff with coverage hits and new issues
+        if (showDiff) {
+          const spinner = ora("Fetching pull request diff...").start();
+
+          const [
+            diffResponse,
+            coverageResponse,
+            diffNewIssues,
+            diffPotentialIssues,
+          ] = await Promise.all([
+            RepositoryService.getPullRequestDiff(
+              provider,
+              organization,
+              repository,
+              prNumber,
+            ).catch(() => null),
+            CoverageService.getRepositoryPullRequestFilesCoverage(
+              provider,
+              organization,
+              repository,
+              prNumber,
+            ).catch(() => ({ data: [] as FileDiffCoverage[] })),
+            fetchAllPrIssues(
+              provider,
+              organization,
+              repository,
+              prNumber,
+              false,
+            ),
+            fetchAllPrIssues(
+              provider,
+              organization,
+              repository,
+              prNumber,
+              true,
+            ),
+          ]);
+
+          spinner.stop();
+
+          const diffText = (diffResponse as any)?.diff ?? "";
+          const diffCoverageList: FileDiffCoverage[] =
+            (coverageResponse as any)?.data ?? [];
+
+          const diffTaggedIssues: TaggedIssue[] = [
+            ...diffNewIssues
+              .filter((i) => i.deltaType === "Added")
+              .map((i) => ({ ...i, isPotential: false })),
+            ...diffPotentialIssues
+              .filter((i) => i.deltaType === "Added")
+              .map((i) => ({ ...i, isPotential: true })),
+          ];
+
+          if (format === "json") {
+            printJson({
+              diff: diffText,
+              coverage: diffCoverageList,
+              issues: diffTaggedIssues,
+            });
+            return;
+          }
+
+          if (!diffText) {
+            console.log(ansis.dim("No diff available for this pull request."));
+            return;
+          }
+
+          printAnnotatedDiff(diffText, diffCoverageList, diffTaggedIssues);
+          return;
+        }
+
         const spinner = ora("Fetching pull request details...").start();
 
         const [
@@ -479,6 +829,7 @@ Examples:
           newIssuesResponse,
           potentialIssuesResponse,
           filesResponse,
+          coverageResponse,
         ] = await Promise.all([
           AnalysisService.getRepositoryPullRequest(
             provider,
@@ -508,6 +859,12 @@ Examples:
             repository,
             prNumber,
           ),
+          CoverageService.getRepositoryPullRequestFilesCoverage(
+            provider,
+            organization,
+            repository,
+            prNumber,
+          ).catch(() => ({ data: [] as FileDiffCoverage[] })),
         ]);
 
         spinner.stop();
@@ -550,6 +907,11 @@ Examples:
           potentialIssues.pagination,
           "Not all issues are shown.",
         );
+
+        // Diff Coverage Summary (only when coverage data is available)
+        const fileCoverageList: FileDiffCoverage[] =
+          (coverageResponse as any)?.data ?? [];
+        printDiffCoverageSummary(fileCoverageList);
 
         // Files
         printFilesList(filesData.data || []);

@@ -35,6 +35,8 @@
     "cli-table3": "^0.6.3",
     "commander": "14.0.0",
     "date-fns": "4.1.0",
+    "gitdiff-parser": "0.3.1",
+    "lodash": "4.17.23",
     "numeral": "2.0.6",
     "ora": "7.0.1",
     "pluralize": "8.0.0"

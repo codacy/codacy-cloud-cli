@@ -1,7 +1,6 @@
 import { Command } from "commander";
 import ora from "ora";
 import ansis from "ansis";
-import { format, parseISO, isValid } from "date-fns";
 import { checkApiToken } from "../utils/auth";
 import { handleError } from "../utils/error";
 import {
@@ -9,7 +8,12 @@ import {
   printJson,
   printPaginationWarning,
 } from "../utils/output";
-import { printSection } from "../utils/formatting";
+import {
+  printSection,
+  colorPriority,
+  colorStatus,
+  formatDueDate,
+} from "../utils/formatting";
 import { SecurityService } from "../api/client/services/SecurityService";
 import { SrmItem } from "../api/client/models/SrmItem";
 import { SearchSRMItems } from "../api/client/models/SearchSRMItems";
@@ -67,44 +71,6 @@ function normalizeScanType(input: string): string {
   );
 }
 
-function colorPriority(priority: string): string {
-  switch (priority) {
-    case "Critical":
-      return ansis.red(priority);
-    case "High":
-      return ansis.hex("#FF8C00")(priority);
-    case "Medium":
-      return ansis.yellow(priority);
-    case "Low":
-      return ansis.blue(priority);
-    default:
-      return priority;
-  }
-}
-
-function colorStatus(status: string): string {
-  switch (status) {
-    case "Overdue":
-      return ansis.magenta(status);
-    case "DueSoon":
-      return ansis.hex("#8B5CF6")(status);
-    case "OnTrack":
-      return ansis.green(status);
-    default:
-      // ClosedOnTime, ClosedLate, Ignored
-      return ansis.dim(status);
-  }
-}
-
-/**
- * Format a due date as YYYY-MM-DD — relative time doesn't make sense for a deadline.
- */
-function formatDueDate(dateStr: string): string {
-  const date = parseISO(dateStr);
-  if (!isValid(date)) return "N/A";
-  return format(date, "yyyy-MM-dd");
-}
-
 function printFindingCard(item: SrmItem, showRepo: boolean): void {
   const separator = ansis.dim("─".repeat(40));
   const pipe = ` ${ansis.dim("|")} `;
@@ -126,7 +92,8 @@ function printFindingCard(item: SrmItem, showRepo: boolean): void {
 
   if (showRepo && item.repository) line1Parts.push(ansis.dim(item.repository));
 
-  console.log(line1Parts.join(pipe));
+  const idLabel = ansis.hex("#555555")(item.id);
+  console.log(line1Parts.join(pipe) + `  ${idLabel}`);
 
   // Line 2: Title
   console.log(item.title);

@@ -1,12 +1,14 @@
 import ansis from "ansis";
 import numeral from "numeral";
 import pluralize from "pluralize";
+import { format as dateFnsFormat, parseISO, isValid } from "date-fns";
 import { PullRequestWithAnalysis } from "../api/client/models/PullRequestWithAnalysis";
 import { AnalysisResultReason } from "../api/client/models/AnalysisResultReason";
 import { CommitIssue } from "../api/client/models/CommitIssue";
 import { SeverityLevel } from "../api/client/models/SeverityLevel";
 import { Pattern } from "../api/client/models/Pattern";
 import { CodeBlockLine } from "../api/client/models/CodeBlockLine";
+import { CveRecord } from "./cve";
 
 export const SEVERITY_DISPLAY: Record<string, string> = {
   Error: "Critical",
@@ -29,6 +31,52 @@ export function colorSeverity(level: SeverityLevel): string {
     default:
       return label;
   }
+}
+
+/**
+ * Color a security finding priority level.
+ * Matches the same palette as colorSeverity (Critical=red, High=orange, Medium=yellow, Low=blue).
+ */
+export function colorPriority(priority: string): string {
+  switch (priority) {
+    case "Critical":
+      return ansis.red(priority);
+    case "High":
+      return ansis.hex("#FF8C00")(priority);
+    case "Medium":
+      return ansis.yellow(priority);
+    case "Low":
+      return ansis.blue(priority);
+    default:
+      return priority;
+  }
+}
+
+/**
+ * Color a security finding status.
+ * Uses distinct colors that don't clash with severity (magenta/violet/green).
+ */
+export function colorStatus(status: string): string {
+  switch (status) {
+    case "Overdue":
+      return ansis.magenta(status);
+    case "DueSoon":
+      return ansis.hex("#8B5CF6")(status);
+    case "OnTrack":
+      return ansis.green(status);
+    default:
+      // ClosedOnTime, ClosedLate, Ignored
+      return ansis.dim(status);
+  }
+}
+
+/**
+ * Format a due date as YYYY-MM-DD (relative time doesn't make sense for deadlines).
+ */
+export function formatDueDate(dateStr: string): string {
+  const date = parseISO(dateStr);
+  if (!isValid(date)) return "N/A";
+  return dateFnsFormat(date, "yyyy-MM-dd");
 }
 
 /**
@@ -239,6 +287,86 @@ export function formatPrIssues(
   return `${newColored} / ${ansis.dim(fixI)}`;
 }
 
+function colorCvssSeverity(severity: string | undefined): string {
+  switch (severity?.toLowerCase()) {
+    case "critical": return ansis.red(severity!);
+    case "high":     return ansis.hex("#FF8C00")(severity!);
+    case "medium":   return ansis.yellow(severity!);
+    case "low":      return ansis.green(severity!);
+    default:         return severity ?? "-";
+  }
+}
+
+/**
+ * Print a CVE enrichment block (title, CVSS, dates, description, references).
+ * Shared between the no-issue path in `finding.ts` and injected inside
+ * `printIssueCodeContext` for Codacy-source findings with a linked issue.
+ */
+export function printCveBlock(cve: CveRecord): void {
+  const meta = cve.cveMetadata;
+  const cna  = cve.containers.cna;
+  const adp  = cve.containers.adp ?? [];
+
+  console.log();
+  console.log(ansis.bold(`About ${meta.cveId}`));
+
+  // CVSS scores + published/updated on one line
+  const infoParts: string[] = [];
+  if (cna.metrics?.length) {
+    const scoreLabels = cna.metrics.map((m) => {
+      const score =
+        m.cvssV4_0?.baseScore ??
+        m.cvssV3_1?.baseScore ??
+        m.cvssV3_0?.baseScore ??
+        m.cvssV2_0?.baseScore;
+      const severity =
+        m.cvssV4_0?.baseSeverity ??
+        m.cvssV3_1?.baseSeverity ??
+        m.cvssV3_0?.baseSeverity;
+      return `${score ?? "-"} | ${colorCvssSeverity(severity)}`;
+    });
+    infoParts.push(`CVSS: ${scoreLabels.join("  ")}`);
+  }
+  if (meta.datePublished) infoParts.push(`Published: ${formatDueDate(meta.datePublished)}`);
+  if (meta.dateUpdated)   infoParts.push(`Updated: ${formatDueDate(meta.dateUpdated)}`);
+  if (infoParts.length)   console.log(ansis.dim(infoParts.join("   ")));
+
+  // Title: prefer cna.title, fall back to first English problem type description
+  const title =
+    cna.title ??
+    cna.problemTypes?.[0]?.descriptions?.find((d) => d.lang === "en")?.description;
+  if (title) {
+    console.log();
+    console.log(title);
+  }
+
+  // English description
+  const desc = cna.descriptions?.find((d) => d.lang === "en")?.value;
+  if (desc) {
+    console.log();
+    console.log(desc);
+  }
+
+  // Deduplicated references from cna and all adp containers
+  const seen = new Set<string>();
+  const uniqueRefs = [
+    ...(cna.references ?? []),
+    ...adp.flatMap((a) => a.references ?? []),
+  ].filter((r) => {
+    if (seen.has(r.url)) return false;
+    seen.add(r.url);
+    return true;
+  });
+
+  if (uniqueRefs.length > 0) {
+    console.log();
+    console.log(ansis.bold("References:"));
+    for (const ref of uniqueRefs) {
+      console.log(ansis.dim(`  ${ref.url}`));
+    }
+  }
+}
+
 /**
  * Format and print the ±5 line code context around the issue.
  * The issue line is shown in bold; an optional suggestion is shown
@@ -267,26 +395,17 @@ export function printFileContext(
 }
 
 /**
- * Print the full detail view for a single quality issue, including code context
- * and pattern documentation. Used by both the `issue` command and the
- * `pull-request --issue` option.
+ * Print file path, code context, false positive warning, optional CVE block,
+ * and pattern documentation.
+ * Extracted so it can be reused by both the `issue` command and Codacy-source `finding` details.
+ * When `cveData` is provided it is injected between the code block and the pattern docs.
  */
-export function printIssueDetail(
+export function printIssueCodeContext(
   issue: CommitIssue,
   pattern: Pattern | null,
   lines: CodeBlockLine[] | null,
+  cveData?: CveRecord | null,
 ): void {
-  const p = issue.patternInfo;
-
-  console.log();
-
-  // Header: Severity | Category SubCategory
-  const severity = colorSeverity(p.severityLevel);
-  const subCat = p.subCategory ? ` ${ansis.dim(p.subCategory)}` : "";
-  console.log(`${severity} ${ansis.dim("|")} ${p.category}${subCat}`);
-
-  // Message
-  console.log(issue.message);
   console.log();
 
   // File path : line
@@ -315,6 +434,11 @@ export function printIssueDetail(
     console.log(ansis.yellow(`Potential false positive: ${reason}`));
   }
 
+  // CVE enrichment — injected between code context and pattern docs
+  if (cveData) {
+    printCveBlock(cveData);
+  }
+
   if (!pattern) {
     return;
   }
@@ -322,6 +446,7 @@ export function printIssueDetail(
   // Pattern description
   if (pattern.description) {
     console.log();
+    console.log(ansis.bold("About this pattern"));
     console.log(pattern.description);
   }
 
@@ -353,4 +478,30 @@ export function printIssueDetail(
     : pattern.id;
   console.log(ansis.dim(`Detected by: ${toolName}`));
   console.log(ansis.dim(patternRef));
+}
+
+/**
+ * Print the full detail view for a single quality issue, including code context
+ * and pattern documentation. Used by both the `issue` command and the
+ * `pull-request --issue` option.
+ */
+export function printIssueDetail(
+  issue: CommitIssue,
+  pattern: Pattern | null,
+  lines: CodeBlockLine[] | null,
+): void {
+  const p = issue.patternInfo;
+
+  console.log();
+
+  // Header: Severity | Category SubCategory
+  const severity = colorSeverity(p.severityLevel);
+  const subCat = p.subCategory ? ` ${ansis.dim(p.subCategory)}` : "";
+  console.log(`${severity} ${ansis.dim("|")} ${p.category}${subCat}`);
+
+  // Message
+  console.log(issue.message);
+
+  // Code context + pattern info (shared with finding command for Codacy-source findings)
+  printIssueCodeContext(issue, pattern, lines);
 }

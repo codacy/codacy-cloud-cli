@@ -37,7 +37,12 @@ codacy-cloud-cli/
 ├── api-v3/
 │   └── api-swagger.yaml         # OpenAPI 3.0.1 spec (source of truth for client generation)
 ├── dist/                        # Compiled JS output (gitignored)
-├── TODO.md                      # Backlog of tasks - agents MUST read and update this
+├── SPECS/                       # Specs and backlog - agents MUST read SPECS/README.md
+│   ├── README.md                # Agent landing page: pending tasks, command table, changelog
+│   ├── commands/                # One spec file per command
+│   ├── setup.md                 # Test framework, build, utilities
+│   └── deployment.md            # npm publishing, CI pipelines
+├── TODO.md                      # Redirects to SPECS/README.md
 ├── CLAUDE.md                    # This file
 ├── package.json
 └── tsconfig.json
@@ -47,9 +52,9 @@ codacy-cloud-cli/
 
 ### For All Agents
 
-1. **Read `TODO.md` before starting work.** Understand the current backlog, what's done, and what's next. When completing a task, mark it as done in `TODO.md` with the date.
+1. **Read `SPECS/README.md` before starting work.** It shows pending tasks, the command inventory, and the changelog. When completing a task, update the pending table and add a changelog entry.
 2. **Never edit files under `src/api/client/`.** This directory is auto-generated. If the API client needs updating, run `npm run update-api`.
-3. **Ask before assuming.** If a task in TODO.md or user instruction is ambiguous, ask clarifying questions before writing code. Do not guess intent.
+3. **Ask before assuming.** If a task in SPECS or a user instruction is ambiguous, ask clarifying questions before writing code. Do not guess intent.
 4. **Document what you build.** Every command, utility, or significant piece of logic must include:
    - Inline comments where the logic isn't self-evident
    - A `CLAUDE.md` in the relevant folder explaining design and implementation decisions when the folder contains multiple related files
@@ -152,18 +157,21 @@ Tests must be configured with a proper test framework (Vitest or Jest - check `p
 npm test
 ```
 
-## TODO Backlog
+## Specs & Backlog
 
-The file `TODO.md` at the project root is the single source of truth for the project backlog. It tracks:
-- Pending tasks (what to build next)
-- In-progress work
-- Completed tasks (with dates)
+The `SPECS/` folder at the project root is the single source of truth for specs and the project backlog.
+
+- **`SPECS/README.md`** — agent landing page: pending tasks table, command inventory, changelog
+- **`SPECS/commands/<command>.md`** — full spec for each command (API endpoints, output format, options, test counts)
+- **`SPECS/setup.md`** — test framework, utilities reference
+- **`SPECS/deployment.md`** — CI pipelines, npm publishing
 
 **Agents must:**
-1. Read `TODO.md` at the start of every session
-2. Pick up the next pending task (or the one specified by the user)
-3. Mark tasks as done when completed, with the completion date
-4. Add new tasks discovered during work (e.g., follow-up improvements, bugs found)
+1. Read `SPECS/README.md` at the start of every session
+2. Pick up the next pending task from the pending table (or the one specified by the user)
+3. Read the relevant `SPECS/commands/<command>.md` before implementing a command
+4. Update `SPECS/README.md` (mark tasks done, add changelog entry) when completing work
+5. Add new tasks to `SPECS/README.md` pending table when discovered during work
 
 ## Environment Variables
 
