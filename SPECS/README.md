@@ -20,6 +20,10 @@ _No pending tasks._
 | `issue` | `iss` | ✅ Done | [issue.md](commands/issue.md) |
 | `findings` | `fins` | ✅ Done | [findings.md](commands/findings.md) |
 | `finding` | `fin` | ✅ Done (CVE enrichment included) | [finding.md](commands/finding.md) |
+| `tools` | `tls` | ✅ Done | [tools-and-patterns.md](commands/tools-and-patterns.md) |
+| `tool` | `tl` | ✅ Done | [tools-and-patterns.md](commands/tools-and-patterns.md) |
+| `patterns` | `pats` | ✅ Done | [tools-and-patterns.md](commands/tools-and-patterns.md) |
+| `pattern` | `pat` | ✅ Done | [tools-and-patterns.md](commands/tools-and-patterns.md) |
 
 ## Other Specs
 
@@ -50,3 +54,4 @@ _No pending tasks._
 | 2026-02-24 | SPECS folder created — TODO.md split into `SPECS/README.md` + per-command specs + setup/deployment |
 | 2026-02-25 | `pull-request --diff` option + Diff Coverage Summary section (6 new tests, 108 total) |
 | 2026-02-25 | `repository` actions: `--add`, `--remove`, `--follow`, `--unfollow` (4 new tests, 112 total) |
+| 2026-02-25 | `tools`, `tool`, `patterns`, `pattern` commands + tests (35 new tests, 147 total); `findToolByName` helper added to `utils/formatting.ts` |

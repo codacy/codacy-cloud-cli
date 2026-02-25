@@ -9,6 +9,10 @@ import { registerIssuesCommand } from "./commands/issues";
 import { registerIssueCommand } from "./commands/issue";
 import { registerFindingsCommand } from "./commands/findings";
 import { registerFindingCommand } from "./commands/finding";
+import { registerToolsCommand } from "./commands/tools";
+import { registerToolCommand } from "./commands/tool";
+import { registerPatternsCommand } from "./commands/patterns";
+import { registerPatternCommand } from "./commands/pattern";
 
 const program = new Command();
 
@@ -32,5 +36,9 @@ registerIssuesCommand(program);
 registerIssueCommand(program);
 registerFindingsCommand(program);
 registerFindingCommand(program);
+registerToolsCommand(program);
+registerToolCommand(program);
+registerPatternsCommand(program);
+registerPatternCommand(program);
 
 program.parse(process.argv);

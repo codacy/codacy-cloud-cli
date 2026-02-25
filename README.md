@@ -251,6 +251,86 @@ With `--issue <id>`: shows full detail for that issue (code context + pattern do
 
 With `--diff`: shows the annotated git diff — only blocks containing covered/uncovered lines or new issues, with 3 lines of context around each. Coverage is shown with ✓ (green, covered) and ✘ (red, uncovered) symbols; issues are annotated inline with severity, category, and message.
 
+#### `tools <provider> <organization> <repository>`
+
+List all analysis tools configured for a repository with their status.
+
+```bash
+codacy tools gh my-org my-repo
+codacy tools gh my-org my-repo --output json
+```
+
+Displays tools grouped into **Enabled** and **Disabled** sections. For each tool:
+- **Config File** — `Applied` (config file detected and in use), `Available` (detected but not used), or `Not Available`
+- **Via Standard** — name of any Coding Standard that enabled the tool
+- **Notes** — `Client-side tool` for tools that run locally
+
+#### `tool <provider> <organization> <repository> <toolName>`
+
+Enable, disable, or configure an analysis tool for a repository.
+
+```bash
+codacy tool gh my-org my-repo eslint --enable
+codacy tool gh my-org my-repo eslint --disable
+codacy tool gh my-org my-repo eslint --configuration-file true
+codacy tool gh my-org my-repo eslint --enable --configuration-file true
+```
+
+| Argument | Description |
+|---|---|
+| `toolName` | Tool name (use hyphens for spaces, e.g. `eslint-(deprecated)`) |
+
+| Option | Description |
+|---|---|
+| `-e, --enable` | Enable the tool |
+| `-d, --disable` | Disable the tool |
+| `-c, --configuration-file <true/false>` | Set whether the tool uses a configuration file |
+
+Tool names are matched by best-fit: `eslint` matches "ESLint" but not "ESLint9" or "ESLint (deprecated)"; `eslint-(deprecated)` matches "ESLint (deprecated)".
+
+#### `patterns <provider> <organization> <repository> <toolName>`
+
+List all patterns for an analysis tool in a repository with their status and configuration.
+
+```bash
+codacy patterns gh my-org my-repo eslint
+codacy patterns gh my-org my-repo eslint --enabled --categories Security
+codacy patterns gh my-org my-repo eslint --severities Critical,High --search "sql injection"
+codacy patterns gh my-org my-repo eslint --output json
+```
+
+| Option | Description |
+|---|---|
+| `-l, --languages <languages>` | Comma-separated list of languages |
+| `-C, --categories <categories>` | Comma-separated list of categories |
+| `-s, --severities <severities>` | Comma-separated severity levels: `Critical`, `High`, `Medium`, `Minor` |
+| `-t, --tags <tags>` | Comma-separated list of tags |
+| `-q, --search <search>` | Search term to filter patterns |
+| `-e, --enabled` | Show only enabled patterns |
+| `-D, --disabled` | Show only disabled patterns |
+| `-r, --recommended` | Show only recommended patterns |
+
+Displays patterns as cards sorted by severity (Critical first), then recommended first, then alphabetically. Each card shows severity, category, description, rationale, solution, and active parameter values.
+
+#### `pattern <provider> <organization> <repository> <toolName> <patternId>`
+
+Enable, disable, or set parameters for a specific analysis pattern.
+
+```bash
+codacy pattern gh my-org my-repo eslint no-unused-vars --enable
+codacy pattern gh my-org my-repo eslint no-unused-vars --disable
+codacy pattern gh my-org my-repo eslint max-len --parameter max=120
+codacy pattern gh my-org my-repo eslint max-len --enable --parameter max=120 --parameter tabWidth=2
+```
+
+| Option | Description |
+|---|---|
+| `-e, --enable` | Enable the pattern |
+| `-d, --disable` | Disable the pattern |
+| `-p, --parameter <name=value>` | Set a parameter value (`name=value` format, repeatable) |
+
+When only `--parameter` is used (without `--enable` or `--disable`), the current enabled state of the pattern is preserved automatically.
+
 ## Development
 
 ```bash

@@ -9,6 +9,7 @@ import { SeverityLevel } from "../api/client/models/SeverityLevel";
 import { Pattern } from "../api/client/models/Pattern";
 import { CodeBlockLine } from "../api/client/models/CodeBlockLine";
 import { CveRecord } from "./cve";
+import { AnalysisTool } from "../api/client/models/AnalysisTool";
 
 export const SEVERITY_DISPLAY: Record<string, string> = {
   Error: "Critical",
@@ -504,4 +505,32 @@ export function printIssueDetail(
 
   // Code context + pattern info (shared with finding command for Codacy-source findings)
   printIssueCodeContext(issue, pattern, lines);
+}
+
+/**
+ * Find a tool from a list by name using best-match logic:
+ * 1. Exact match (case-insensitive, hyphens treated as spaces)
+ * 2. Tool name starts with input + space ("jackson" → "Jackson Linter")
+ * 3. Any prefix match — shortest wins
+ */
+export function findToolByName(
+  tools: AnalysisTool[],
+  nameInput: string,
+): AnalysisTool | undefined {
+  const normalized = nameInput.toLowerCase().replace(/-/g, " ");
+
+  const exact = tools.find((t) => t.name.toLowerCase() === normalized);
+  if (exact) return exact;
+
+  const wordPrefixMatches = tools.filter((t) =>
+    t.name.toLowerCase().startsWith(normalized + " "),
+  );
+  if (wordPrefixMatches.length > 0) {
+    return wordPrefixMatches.sort((a, b) => a.name.length - b.name.length)[0];
+  }
+
+  const anyPrefixMatches = tools.filter((t) =>
+    t.name.toLowerCase().startsWith(normalized),
+  );
+  return anyPrefixMatches.sort((a, b) => a.name.length - b.name.length)[0];
 }
