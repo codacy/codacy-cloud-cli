@@ -2,8 +2,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Command } from "commander";
 import { registerRepositoryCommand } from "./repository";
 import { AnalysisService } from "../api/client/services/AnalysisService";
+import { RepositoryService } from "../api/client/services/RepositoryService";
 
 vi.mock("../api/client/services/AnalysisService");
+vi.mock("../api/client/services/RepositoryService");
 vi.spyOn(console, "log").mockImplementation(() => {});
 
 function createProgram(): Command {
@@ -471,5 +473,85 @@ describe("repository command", () => {
     ).rejects.toThrow("process.exit called");
 
     mockExit.mockRestore();
+  });
+
+  // ─── Actions ─────────────────────────────────────────────────────────────
+
+  it("should add repository to Codacy with --add", async () => {
+    vi.mocked(RepositoryService.addRepository).mockResolvedValue({} as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "repository", "gh", "test-org", "test-repo", "--add",
+    ]);
+
+    expect(RepositoryService.addRepository).toHaveBeenCalledWith({
+      repositoryFullPath: "test-org/test-repo",
+      provider: "gh",
+    });
+
+    const allOutput = (console.log as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => c[0])
+      .join("\n");
+    expect(allOutput).toContain("test-repo");
+    expect(allOutput).toContain("added");
+    expect(allOutput).toContain("few minutes");
+  });
+
+  it("should remove repository from Codacy with --remove", async () => {
+    vi.mocked(RepositoryService.deleteRepository).mockResolvedValue(undefined as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "repository", "gh", "test-org", "test-repo", "--remove",
+    ]);
+
+    expect(RepositoryService.deleteRepository).toHaveBeenCalledWith(
+      "gh", "test-org", "test-repo",
+    );
+
+    const allOutput = (console.log as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => c[0])
+      .join("\n");
+    expect(allOutput).toContain("test-repo");
+    expect(allOutput).toContain("removed");
+  });
+
+  it("should follow repository with --follow", async () => {
+    vi.mocked(RepositoryService.followAddedRepository).mockResolvedValue({} as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "repository", "gh", "test-org", "test-repo", "--follow",
+    ]);
+
+    expect(RepositoryService.followAddedRepository).toHaveBeenCalledWith(
+      "gh", "test-org", "test-repo",
+    );
+
+    const allOutput = (console.log as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => c[0])
+      .join("\n");
+    expect(allOutput).toContain("test-repo");
+    expect(allOutput).toContain("following");
+  });
+
+  it("should unfollow repository with --unfollow", async () => {
+    vi.mocked(RepositoryService.unfollowRepository).mockResolvedValue(undefined as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "repository", "gh", "test-org", "test-repo", "--unfollow",
+    ]);
+
+    expect(RepositoryService.unfollowRepository).toHaveBeenCalledWith(
+      "gh", "test-org", "test-repo",
+    );
+
+    const allOutput = (console.log as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => c[0])
+      .join("\n");
+    expect(allOutput).toContain("test-repo");
+    expect(allOutput).toContain("Unfollowed");
   });
 });

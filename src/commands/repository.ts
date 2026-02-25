@@ -23,6 +23,7 @@ import {
   formatPrIssues,
 } from "../utils/formatting";
 import { AnalysisService } from "../api/client/services/AnalysisService";
+import { RepositoryService } from "../api/client/services/RepositoryService";
 import { RepositoryWithAnalysis } from "../api/client/models/RepositoryWithAnalysis";
 import { PullRequestWithAnalysis } from "../api/client/models/PullRequestWithAnalysis";
 import { Count } from "../api/client/models/Count";
@@ -201,12 +202,20 @@ export function registerRepositoryCommand(program: Command) {
     .argument("<provider>", "git provider (gh, gl, or bb)")
     .argument("<organization>", "organization name")
     .argument("<repository>", "repository name")
+    .option("-a, --add", "add this repository to Codacy")
+    .option("-r, --remove", "remove this repository from Codacy")
+    .option("-f, --follow", "follow this repository on Codacy")
+    .option("-u, --unfollow", "unfollow this repository on Codacy")
     .addHelpText(
       "after",
       `
 Examples:
   $ codacy-cloud-cli repository gh my-org my-repo
-  $ codacy-cloud-cli repository gh my-org my-repo --output json`,
+  $ codacy-cloud-cli repository gh my-org my-repo --output json
+  $ codacy-cloud-cli repository gh my-org my-repo --add
+  $ codacy-cloud-cli repository gh my-org my-repo --remove
+  $ codacy-cloud-cli repository gh my-org my-repo --follow
+  $ codacy-cloud-cli repository gh my-org my-repo --unfollow`,
     )
     .action(async function (
       this: Command,
@@ -216,6 +225,71 @@ Examples:
     ) {
       try {
         checkApiToken();
+        const opts = this.opts();
+
+        // ── Action: add ──────────────────────────────────────────────────
+        if (opts.add) {
+          const spinner = ora(`Adding ${repository} to Codacy...`).start();
+          await RepositoryService.addRepository({
+            repositoryFullPath: `${organization}/${repository}`,
+            provider,
+          });
+          spinner.stop();
+          console.log(
+            `${ansis.green("✓")} Repository ${ansis.bold(repository)} added to Codacy.`,
+          );
+          console.log(
+            ansis.dim(
+              "Note: the repository will be available after a few minutes, once the initial cloning and analysis is complete.",
+            ),
+          );
+          return;
+        }
+
+        // ── Action: remove ───────────────────────────────────────────────
+        if (opts.remove) {
+          const spinner = ora(`Removing ${repository} from Codacy...`).start();
+          await RepositoryService.deleteRepository(
+            provider,
+            organization,
+            repository,
+          );
+          spinner.stop();
+          console.log(
+            `${ansis.green("✓")} Repository ${ansis.bold(repository)} removed from Codacy.`,
+          );
+          return;
+        }
+
+        // ── Action: follow ───────────────────────────────────────────────
+        if (opts.follow) {
+          const spinner = ora(`Following ${repository}...`).start();
+          await RepositoryService.followAddedRepository(
+            provider,
+            organization,
+            repository,
+          );
+          spinner.stop();
+          console.log(
+            `${ansis.green("✓")} Now following ${ansis.bold(repository)}.`,
+          );
+          return;
+        }
+
+        // ── Action: unfollow ─────────────────────────────────────────────
+        if (opts.unfollow) {
+          const spinner = ora(`Unfollowing ${repository}...`).start();
+          await RepositoryService.unfollowRepository(
+            provider,
+            organization,
+            repository,
+          );
+          spinner.stop();
+          console.log(`${ansis.green("✓")} Unfollowed ${ansis.bold(repository)}.`);
+          return;
+        }
+
+        // ── Default: dashboard view ──────────────────────────────────────
         const format = getOutputFormat(this);
         const spinner = ora("Fetching repository details...").start();
 

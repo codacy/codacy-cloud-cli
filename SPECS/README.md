@@ -14,7 +14,7 @@ _No pending tasks._
 |---|---|---|---|
 | `info` | `inf` | ✅ Done | [info.md](commands/info.md) |
 | `repositories` | `repos` | ✅ Done | [repositories.md](commands/repositories.md) |
-| `repository` | `repo` | ✅ Done | [repository.md](commands/repository.md) |
+| `repository` | `repo` | ✅ Done (actions added) | [repository.md](commands/repository.md) |
 | `pull-request` | `pr` | ✅ Done (--diff + Diff Coverage Summary added) | [pull-request.md](commands/pull-request.md) |
 | `issues` | `is` | ✅ Done | [issues.md](commands/issues.md) |
 | `issue` | `iss` | ✅ Done | [issue.md](commands/issue.md) |
@@ -49,3 +49,4 @@ _No pending tasks._
 | 2026-02-24 | CVE enrichment for `finding`: fetches `cveawg.mitre.org` in parallel, shows CVSS/description/references (5 new tests, 102 total) |
 | 2026-02-24 | SPECS folder created — TODO.md split into `SPECS/README.md` + per-command specs + setup/deployment |
 | 2026-02-25 | `pull-request --diff` option + Diff Coverage Summary section (6 new tests, 108 total) |
+| 2026-02-25 | `repository` actions: `--add`, `--remove`, `--follow`, `--unfollow` (4 new tests, 112 total) |

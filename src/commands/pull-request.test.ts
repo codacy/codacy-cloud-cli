@@ -9,6 +9,7 @@ import { RepositoryService } from "../api/client/services/RepositoryService";
 
 vi.mock("../api/client/services/AnalysisService");
 vi.mock("../api/client/services/CoverageService");
+vi.mock("../api/client/services/RepositoryService");
 vi.mock("../api/client/services/ToolsService");
 vi.mock("../api/client/services/FileService");
 vi.spyOn(console, "log").mockImplementation(() => {});

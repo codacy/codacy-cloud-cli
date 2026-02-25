@@ -33,7 +33,7 @@ You can get a token from **Codacy > My Account > Access Management > Account API
 ## Usage
 
 ```bash
-codacy-cloud-cli <command> [options]
+codacy <command> [options]
 ```
 
 ### Global Options
@@ -51,8 +51,8 @@ codacy-cloud-cli <command> [options]
 Show authenticated user information and their organizations.
 
 ```bash
-codacy-cloud-cli info
-codacy-cloud-cli info --output json
+codacy info
+codacy info --output json
 ```
 
 Displays:
@@ -64,9 +64,9 @@ Displays:
 List repositories for an organization with analysis data.
 
 ```bash
-codacy-cloud-cli repositories gh my-org
-codacy-cloud-cli repositories gh my-org --search my-repo
-codacy-cloud-cli repositories gl my-org --output json
+codacy repositories gh my-org
+codacy repositories gh my-org --search my-repo
+codacy repositories gl my-org --output json
 ```
 
 | Argument | Description |
@@ -82,14 +82,25 @@ Displays: name, grade, issues, complexity, duplication, coverage, and last updat
 
 #### `repository <provider> <organization> <repository>`
 
-Show detailed status and metrics for a specific repository.
+Show detailed status and metrics for a specific repository, or perform an action on it.
 
 ```bash
-codacy-cloud-cli repository gh my-org my-repo
-codacy-cloud-cli repository gh my-org my-repo --output json
+codacy repository gh my-org my-repo
+codacy repository gh my-org my-repo --output json
+codacy repository gh my-org my-repo --add
+codacy repository gh my-org my-repo --remove
+codacy repository gh my-org my-repo --follow
+codacy repository gh my-org my-repo --unfollow
 ```
 
-Displays a multi-section dashboard:
+| Option | Description |
+|---|---|
+| `-a, --add` | Add this repository to Codacy |
+| `-r, --remove` | Remove this repository from Codacy |
+| `-f, --follow` | Follow this repository on Codacy |
+| `-u, --unfollow` | Unfollow this repository on Codacy |
+
+Without an action flag, displays a multi-section dashboard:
 - **About** -- repository info, default branch, last analysis
 - **Setup** -- languages, coding standards, quality gate, problems
 - **Metrics** -- issues (count + per kLoC), coverage, complexity, duplication
@@ -133,11 +144,11 @@ With `--overview`, displays issue count totals grouped by: category, severity, l
 Show security findings for a repository or an entire organization.
 
 ```bash
-codacy-cloud-cli findings gh my-org my-repo
-codacy-cloud-cli findings gh my-org
-codacy-cloud-cli findings gh my-org --severities Critical,High
-codacy-cloud-cli findings gh my-org my-repo --statuses Overdue,DueSoon
-codacy-cloud-cli findings gh my-org my-repo --output json
+codacy findings gh my-org my-repo
+codacy findings gh my-org
+codacy findings gh my-org --severities Critical,High
+codacy findings gh my-org my-repo --statuses Overdue,DueSoon
+codacy findings gh my-org my-repo --output json
 ```
 
 | Argument | Description |
@@ -167,8 +178,8 @@ When browsing org-wide (no repository argument), the repository name is shown on
 Show full details of a single quality issue, including extended code context and pattern documentation.
 
 ```bash
-codacy-cloud-cli issue gh my-org my-repo 12345
-codacy-cloud-cli issue gh my-org my-repo 12345 --output json
+codacy issue gh my-org my-repo 12345
+codacy issue gh my-org my-repo 12345 --output json
 ```
 
 | Argument | Description |
@@ -184,13 +195,37 @@ Displays:
 - **False positive warning** — if the issue is likely a false positive
 - **Pattern documentation** — full description, rationale ("Why is this a problem?"), solution ("How to fix it?"), tags, and tool/pattern reference
 
+#### `finding <provider> <organization> <repository> <findingId>`
+
+Show full details for a single security finding, with CVE enrichment when a CVE ID is present.
+
+```bash
+codacy finding gh my-org my-repo 12345
+codacy finding gh my-org my-repo 12345 --output json
+```
+
+| Argument | Description |
+|---|---|
+| `provider` | Git provider: `gh` (GitHub), `gl` (GitLab), or `bb` (Bitbucket) |
+| `organization` | Organization name on the provider |
+| `repository` | Repository name |
+| `findingId` | Finding ID shown at the bottom of each card in the `findings` command output |
+
+Displays:
+- **Header** — priority, security category, scan type, status, CVE/CWE identifiers, affected/fixed versions
+- **Code context** — if the finding comes from a Codacy quality issue: ±5 lines of code with the issue line highlighted and pattern documentation
+- **Pattern documentation** — description ("About this pattern"), rationale, solution, tags, tool/pattern reference
+- **CVE details** — (when a CVE ID is present) CVSS v3/v4 scores colored by severity, published/updated dates, title, English description, and deduplicated references fetched in parallel from the NVD database
+
 #### `pull-request <provider> <organization> <repository> <prNumber>`
 
 Show details, analysis status, issues, and changed files for a specific pull request.
 
 ```bash
-codacy-cloud-cli pull-request gh my-org my-repo 42
-codacy-cloud-cli pull-request gh my-org my-repo 42 --output json
+codacy pull-request gh my-org my-repo 42
+codacy pull-request gh my-org my-repo 42 --output json
+codacy pull-request gh my-org my-repo 42 --issue 9901
+codacy pull-request gh my-org my-repo 42 --diff
 ```
 
 | Argument | Description |
@@ -200,11 +235,21 @@ codacy-cloud-cli pull-request gh my-org my-repo 42 --output json
 | `repository` | Repository name |
 | `prNumber` | Pull request number |
 
-Displays:
-- **About** -- PR title, status, author, branches, head commit
-- **Analysis** -- up-to-standards status, issues, coverage, complexity, duplication with gate pass/fail details
-- **Issues** -- issues introduced by the PR, sorted by severity, with file path and line content
-- **Files** -- changed files with metric deltas (issues, coverage, complexity, duplication)
+| Option | Description |
+|---|---|
+| `-i, --issue <issueId>` | Show full details for a specific issue introduced by this PR (use the `#id` shown on issue cards) |
+| `-d, --diff` | Show the git diff annotated with coverage hits/misses and new issues |
+
+Default view displays:
+- **About** — PR title, status, author, branches, head commit
+- **Analysis** — up-to-standards status, issues, coverage, complexity, duplication with gate pass/fail details; "To check" hints when a gate is configured but the metric has no data yet
+- **Issues** — all issues introduced by the PR (confirmed + potential), sorted by severity, with file path, line content, and false-positive warnings
+- **Diff Coverage Summary** — per-file diff coverage percentage and compressed uncovered line ranges (when coverage data is available)
+- **Files** — changed files with metric deltas (issues, coverage, complexity, duplication)
+
+With `--issue <id>`: shows full detail for that issue (code context + pattern docs), same format as the `issue` command.
+
+With `--diff`: shows the annotated git diff — only blocks containing covered/uncovered lines or new issues, with 3 lines of context around each. Coverage is shown with ✓ (green, covered) and ✘ (red, uncovered) symbols; issues are annotated inline with severity, category, and message.
 
 ## Development
 

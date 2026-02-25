@@ -1,6 +1,6 @@
 # `repository` Command Spec
 
-**Status:** ✅ Done (2026-02-18)
+**Status:** ✅ Done (2026-02-18); actions (`--add`, `--remove`, `--follow`, `--unfollow`) added 2026-02-25
 
 ## Purpose
 
@@ -61,6 +61,39 @@ Shows pagination warning if more PRs exist.
 ### Issues Overview (three count tables)
 
 By category, severity level, and language — sorted descending by count.
+
+## Actions
+In all cases, return a success message when the action is completed successfully, otherwise return an error message with the error details provided by the API.
+
+### Add repository to Codacy
+- API Endpoint: [`addRepository`](https://api.codacy.com/api/api-docs#addrepository) 
+- Usage:
+```
+codacy repository <provider> <organization> <repository> --add
+```
+
+- Add an additional message explaining that the repository will be available after a few minutes (after first cloning and analysis is completed), depending on the size of the repository.
+
+### Remove repository from Codacy
+- API Endpoint: [`deleteRepository`](https://api.codacy.com/api/api-docs#deleterepository) 
+- Usage:
+```
+codacy repository <provider> <organization> <repository> --remove
+```
+
+### Follow repository
+- API Endpoint: [`followAddedRepository`](https://api.codacy.com/api/api-docs#followaddedrepository) 
+- Usage:
+```
+codacy repository <provider> <organization> <repository> --follow
+```
+
+### Unfollow repository
+- API Endpoint: [`unfollowRepository`](https://api.codacy.com/api/api-docs#unfollowrepository) 
+- Usage:
+```
+codacy repository <provider> <organization> <repository> --unfollow
+```
 
 ## Tests
 

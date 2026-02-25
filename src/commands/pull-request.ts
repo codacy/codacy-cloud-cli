@@ -37,7 +37,7 @@ import { FileDiffCoverage } from "../api/client/models/FileDiffCoverage";
 import { PullRequestIssuesResponse } from "../api/client/models/PullRequestIssuesResponse";
 import { FileAnalysisListResponse } from "../api/client/models/FileAnalysisListResponse";
 import { parseDiff } from "../utils/diff";
-import { RepositoryService } from "../api/client";
+import { RepositoryService } from "../api/client/services/RepositoryService";
 
 const SEVERITY_ORDER: Record<string, number> = {
   Error: 0,
