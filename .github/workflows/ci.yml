@@ -26,6 +26,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Generate API client
+        run: npm run update-api
+
       - name: Type check
         run: npx tsc --noEmit
 

@@ -1,7 +1,15 @@
 {
-  "name": "codacy-cloud-cli",
+  "name": "@codacy/codacy-cloud-cli",
   "version": "1.0.0",
   "description": "A command-line tool to interact with Codacy Cloud from your terminal",
+  "homepage": "https://www.codacy.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/codacy/codacy-cloud-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/codacy/codacy-cloud-cli/issues"
+  },
   "main": "dist/index.js",
   "bin": {
     "codacy": "dist/index.js"
@@ -11,22 +19,24 @@
   ],
   "scripts": {
     "test": "vitest run",
-    "build": "tsc -p tsconfig.build.json",
-    "prepublishOnly": "npm run build",
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/index.js",
+    "prepublishOnly": "npm run update-api && npm run build",
     "start": "npx ts-node src/index.ts",
     "start:dist": "node dist/index.js",
     "fetch-api": "curl https://artifacts.codacy.com/api/codacy-api/50.7.17/apiv3-bundled.yaml -o ./api-v3/api-swagger.yaml --create-dirs",
     "generate-api": "rm -rf ./src/api/client && openapi --input ./api-v3/api-swagger.yaml --output ./src/api/client --useUnionTypes --indent 2 --client fetch",
-    "update-api": "npm run fetch-api && npm run generate-api",
-    "postinstall": "npm run update-api"
+    "update-api": "npm run fetch-api && npm run generate-api"
   },
   "keywords": [
     "codacy",
     "cli",
     "code-quality",
-    "static-analysis"
+    "static-analysis",
+    "code-review",
+    "security",
+    "linting"
   ],
-  "author": "",
+  "author": "Codacy <support@codacy.com> (https://www.codacy.com)",
   "license": "ISC",
   "engines": {
     "node": ">=18"
