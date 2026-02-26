@@ -17,7 +17,8 @@
     "start:dist": "node dist/index.js",
     "fetch-api": "curl https://artifacts.codacy.com/api/codacy-api/50.7.17/apiv3-bundled.yaml -o ./api-v3/api-swagger.yaml --create-dirs",
     "generate-api": "rm -rf ./src/api/client && openapi --input ./api-v3/api-swagger.yaml --output ./src/api/client --useUnionTypes --indent 2 --client fetch",
-    "update-api": "npm run fetch-api && npm run generate-api"
+    "update-api": "npm run fetch-api && npm run generate-api",
+    "postinstall": "npm run update-api"
   },
   "keywords": [
     "codacy",
