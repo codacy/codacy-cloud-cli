@@ -7,7 +7,7 @@ A command-line tool to interact with [Codacy Cloud](https://app.codacy.com) dire
 ### From npm
 
 ```bash
-npm install -g codacy-cloud-cli
+npm install -g "@codacy/codacy-cloud-cli"
 ```
 
 ### From source

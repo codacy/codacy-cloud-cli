@@ -4,11 +4,11 @@
 
 ## npm Package
 
-- **Binary name:** `codacy-cloud-cli` (registered in `package.json` under `bin`)
+- **Binary name:** `codacy` (registered in `package.json` under `bin`)
 - **Included files:** `dist/` and `README.md` (via `files` field)
 - **Pre-publish:** `prepublishOnly` runs `npm run build` using `tsconfig.build.json`
 - **Engines:** requires Node.js >= 18
-- **Install globally:** `npm install -g codacy-cloud-cli`
+- **Install globally:** `npm install -g "@codacy/codacy-cloud-cli"`
 
 ## GitHub Actions
 
