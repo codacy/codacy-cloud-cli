@@ -34,6 +34,24 @@ function normalizeSeverity(s: string): SeverityLevel {
   return SEVERITY_NORMALIZE[s.toLowerCase().trim()] ?? (s as SeverityLevel);
 }
 
+const CATEGORY_NORMALIZE: Record<string, string> = {
+  errorprone: "ErrorProne",
+  codestyle: "CodeStyle",
+  unusedcode: "UnusedCode",
+  compatibility: "Compatibility",
+  security: "Security",
+  performance: "Performance",
+  complexity: "Complexity",
+  documentation: "Documentation",
+  bestpractice: "BestPractice",
+  comprehensibility: "Comprehensibility",
+};
+
+function normalizeCategory(input: string): string {
+  const key = input.toLowerCase().replace(/[\s_-]/g, "");
+  return CATEGORY_NORMALIZE[key] ?? input;
+}
+
 function printPatternCard(cp: ConfiguredPattern): void {
   const p = cp.patternDefinition;
   const separator = ansis.dim("─".repeat(40));
@@ -145,6 +163,13 @@ Examples:
               .join(",")
           : undefined;
 
+        const categories = opts.categories
+          ? opts.categories
+              .split(",")
+              .map((c: string) => normalizeCategory(c.trim()))
+              .join(",")
+          : undefined;
+
         let enabledFilter: boolean | undefined;
         if (opts.enabled) enabledFilter = true;
         if (opts.disabled) enabledFilter = false;
@@ -155,7 +180,7 @@ Examples:
           repository,
           tool.uuid,
           opts.languages,
-          opts.categories,
+          categories,
           severities,
           opts.tags,
           opts.search,

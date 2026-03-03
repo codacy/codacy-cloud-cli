@@ -61,7 +61,7 @@ codacy-cloud-cli/
 5. **Write tests for everything.** Every command must have corresponding tests. See Testing section below.
 6. **One command per file.** Each CLI command lives in its own file inside `src/commands/`. The file exports a `register<Name>Command(program: Command)` function.
 7. **Keep the entry point thin.** `src/index.ts` only handles Commander setup and command registration. No business logic belongs there.
-8. **Keep `README.md` up to date.** After adding or changing commands, options, or usage patterns, update the README to reflect the current state. The README is the public-facing documentation for users of the CLI.
+8. **Keep `README.md` up to date, but concise.** The README contains only a short summary table of available commands and their one-line descriptions. Do **not** document per-command arguments, options, or examples in the README — users run `codacy <command> --help` for that. After adding or renaming a command, add or update its row in the summary table only.
 
 ### Code Style & Conventions
 

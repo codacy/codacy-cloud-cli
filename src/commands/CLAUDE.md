@@ -120,10 +120,33 @@ Several helpers are shared between `repository.ts` and `pull-request.ts` via `ut
 - `formatPrCoverage(pr, passing)` — diffCoverage% (+/-deltaCoverage%)
 - `formatPrIssues(pr, passing)` — +newIssues (colored by gate) / -fixedIssues (always gray)
 
+## issue command (`issue.ts`)
+
+- Takes `<provider>`, `<organization>`, `<repository>`, and `<issueId>` (the numeric `resultDataId` shown on issue cards) as required arguments
+- Fetches the issue, pattern info, and ±5 lines of file context in parallel
+- **Default mode**: displays full issue detail — header, code context, false positive warning, pattern documentation
+- **`--ignore` mode** (`-I`): calls `AnalysisService.updateIssueState` with `{ ignored: true, reason, comment }`; skips rendering issue details
+  - `-R, --ignore-reason`: `AcceptedUse` (default) | `FalsePositive` | `NotExploitable` | `TestCode` | `ExternalCode`
+  - `-m, --ignore-comment`: optional free-text comment
+- **`--unignore` mode** (`-U`): calls `AnalysisService.updateIssueState` with `{ ignored: false }`; skips rendering issue details
+- The API uses the string UUID (`issue.issueId`), not the numeric `resultDataId`, for the `updateIssueState` call
+
+## finding command (`finding.ts`)
+
+- Takes `<provider>`, `<organization>`, and `<findingId>` (UUID shown on finding cards) as required arguments — **no `<repository>` argument**
+- Fetches the security item; for Codacy-source findings, also fetches the linked quality issue, pattern, and file context
+- Fetches CVE enrichment in parallel when the finding has a `cve` field
+- **Default mode**: displays full finding detail — header, prose fields, code context (Codacy-source only), CVE block
+- **`--ignore` mode** (`-I`): calls `SecurityService.ignoreSecurityItem` with `{ reason, comment }`; skips rendering finding details
+  - `-R, --ignore-reason`: `AcceptedUse` (default) | `FalsePositive` | `NotExploitable` | `TestCode` | `ExternalCode`
+  - `-m, --ignore-comment`: optional free-text comment
+- **`--unignore` mode** (`-U`): calls `SecurityService.unignoreSecurityItem`; skips rendering finding details
+
 ## pull-request command (`pull-request.ts`)
 
 - Takes `<provider>`, `<organization>`, `<repository>`, and `<prNumber>` as required arguments
-- Calls four API endpoints in parallel:
+- Action modes are mutually exclusive and checked in this order: `--ignore-issue`, `--ignore-all-false-positives`, `--unignore-issue`, `--issue`, `--diff`, default
+- **Default mode**: calls four API endpoints in parallel:
   - `getRepositoryPullRequest` — PR metadata + analysis summary
   - `listPullRequestIssues` (status=new, onlyPotential=false) — new confirmed issues
   - `listPullRequestIssues` (status=new, onlyPotential=true) — new potential issues
@@ -144,3 +167,7 @@ Several helpers are shared between `repository.ts` and `pull-request.ts` via `ut
     - Zero values shown in gray without +/- sign; N/A also gray
 - Shows pagination warnings for issues and files
 - JSON output bundles PR data, new issues, potential issues, and files
+- **`--ignore-issue <id>` mode** (`-I`): fetches all PR issues (new + potential, paginated), finds by `resultDataId`, calls `updateIssueState` with `{ ignored: true, reason, comment }`
+  - Supports `-R/--ignore-reason` (default: `AcceptedUse`) and `-m/--ignore-comment`
+- **`--ignore-all-false-positives` mode** (`-F`): fetches all potential false positive issues (onlyPotential=true, paginated), ignores them all in parallel with hardcoded reason `FalsePositive`; supports `-m/--ignore-comment`
+- **`--unignore-issue <id>` mode** (`-U`): same lookup as `--ignore-issue`, calls `updateIssueState` with `{ ignored: false }`

@@ -38,6 +38,7 @@ import { PullRequestIssuesResponse } from "../api/client/models/PullRequestIssue
 import { FileAnalysisListResponse } from "../api/client/models/FileAnalysisListResponse";
 import { parseDiff } from "../utils/diff";
 import { RepositoryService } from "../api/client/services/RepositoryService";
+import { IssueStateBody } from "../api/client/models/IssueStateBody";
 
 const SEVERITY_ORDER: Record<string, number> = {
   Error: 0,
@@ -271,18 +272,20 @@ function printIssuesList(issues: TaggedIssue[]): void {
 /**
  * Format a file delta value: gray for N/A and 0, red for positive, green for negative.
  * If isPercent is true, appends "%" to the display.
+ * If invertColors is true, positive is green and negative is red (e.g. coverage).
  */
 function formatFileDelta(
   value: number | undefined,
   isPercent: boolean = false,
+  invertColors: boolean = false,
 ): string {
   if (value === undefined || value === null) return ansis.dim("N/A");
   if (value === 0) return ansis.dim("0");
   const sign = value > 0 ? "+" : "";
   const suffix = isPercent ? "%" : "";
   const display = `${sign}${isPercent ? value.toFixed(1) : value}${suffix}`;
-  if (value > 0) return ansis.red(display);
-  return ansis.green(display);
+  const positiveIsGood = invertColors ? value > 0 : value < 0;
+  return positiveIsGood ? ansis.green(display) : ansis.red(display);
 }
 
 function printFilesList(files: FileDeltaAnalysis[]): void {
@@ -329,7 +332,7 @@ function printFilesList(files: FileDeltaAnalysis[]): void {
     table.push([
       truncate(f.file.path, 50),
       `${newI} / ${fixI}`,
-      formatFileDelta(c?.deltaCoverage, true),
+      formatFileDelta(c?.deltaCoverage, true, true),
       formatFileDelta(q?.deltaComplexity),
       formatFileDelta(q?.deltaClonesCount),
     ]);
@@ -652,6 +655,24 @@ export function registerPullRequestCommand(program: Command) {
       "-d, --diff",
       "show annotated git diff with coverage hits/misses and new issues",
     )
+    .option(
+      "-I, --ignore-issue <issueId>",
+      "ignore a specific issue in this PR (use the #id shown on issue cards)",
+    )
+    .option(
+      "-F, --ignore-all-false-positives",
+      "ignore all potential false positive issues in this PR with reason FalsePositive",
+    )
+    .option(
+      "-R, --ignore-reason <reason>",
+      "reason for ignoring (AcceptedUse|FalsePositive|NotExploitable|TestCode|ExternalCode)",
+      "AcceptedUse",
+    )
+    .option("-m, --ignore-comment <comment>", "optional comment for the ignore action", "")
+    .option(
+      "-U, --unignore-issue <issueId>",
+      "unignore a specific issue in this PR (use the #id shown on issue cards)",
+    )
     .addHelpText(
       "after",
       `
@@ -659,7 +680,11 @@ Examples:
   $ codacy-cloud-cli pull-request gh my-org my-repo 42
   $ codacy-cloud-cli pull-request gh my-org my-repo 42 --output json
   $ codacy-cloud-cli pull-request gh my-org my-repo 42 --issue 9901
-  $ codacy-cloud-cli pull-request gh my-org my-repo 42 --diff`,
+  $ codacy-cloud-cli pull-request gh my-org my-repo 42 --diff
+  $ codacy-cloud-cli pull-request gh my-org my-repo 42 --ignore-issue 9901
+  $ codacy-cloud-cli pull-request gh my-org my-repo 42 --ignore-issue 9901 --ignore-reason FalsePositive
+  $ codacy-cloud-cli pull-request gh my-org my-repo 42 --ignore-all-false-positives
+  $ codacy-cloud-cli pull-request gh my-org my-repo 42 --unignore-issue 9901`,
     )
     .action(async function (
       this: Command,
@@ -679,6 +704,130 @@ Examples:
         const format = getOutputFormat(this);
         const issueIdStr: string | undefined = this.opts().issue;
         const showDiff: boolean = !!this.opts().diff;
+        const ignoreIssueIdStr: string | undefined = this.opts().ignoreIssue;
+        const ignoreAllFalsePositives: boolean = !!this.opts().ignoreAllFalsePositives;
+        const ignoreReason = this.opts().ignoreReason as IssueStateBody["reason"];
+        const ignoreComment: string = this.opts().ignoreComment;
+        const unignoreIssueIdStr: string | undefined = this.opts().unignoreIssue;
+
+        // --ignore-issue <id>: find and ignore a specific PR issue by resultDataId
+        if (ignoreIssueIdStr !== undefined) {
+          const ignoreIssueId = parseInt(ignoreIssueIdStr, 10);
+          if (isNaN(ignoreIssueId)) {
+            console.error(ansis.red("Error: --ignore-issue must be a number."));
+            process.exit(1);
+          }
+
+          const spinner = ora("Fetching PR issues...").start();
+
+          const [allNew, allPotential] = await Promise.all([
+            fetchAllPrIssues(provider, organization, repository, prNumber, false),
+            fetchAllPrIssues(provider, organization, repository, prNumber, true),
+          ]);
+
+          const found = [...allNew, ...allPotential]
+            .filter((i) => i.deltaType === "Added")
+            .find((i) => i.commitIssue.resultDataId === ignoreIssueId);
+
+          if (!found) {
+            spinner.fail(`Issue #${ignoreIssueId} not found in this pull request.`);
+            process.exit(1);
+          }
+
+          spinner.text = "Ignoring issue...";
+          await AnalysisService.updateIssueState(
+            provider,
+            organization,
+            repository,
+            found.commitIssue.issueId,
+            {
+              ignored: true,
+              reason: ignoreReason,
+              comment: ignoreComment || undefined,
+            },
+          );
+          spinner.succeed(
+            `Issue #${ignoreIssueId} ignored (reason: ${ignoreReason}).`,
+          );
+          return;
+        }
+
+        // --ignore-all-false-positives: fetch all potential false positives and ignore them
+        if (ignoreAllFalsePositives) {
+          const spinner = ora("Fetching potential false positive issues...").start();
+
+          const allPotential = await fetchAllPrIssues(
+            provider,
+            organization,
+            repository,
+            prNumber,
+            true,
+          );
+
+          const toIgnore = allPotential.filter((i) => i.deltaType === "Added");
+
+          if (toIgnore.length === 0) {
+            spinner.info("No potential false positive issues found in this pull request.");
+            return;
+          }
+
+          spinner.text = `Ignoring ${toIgnore.length} potential false positive issue(s)...`;
+          await Promise.all(
+            toIgnore.map((i) =>
+              AnalysisService.updateIssueState(
+                provider,
+                organization,
+                repository,
+                i.commitIssue.issueId,
+                {
+                  ignored: true,
+                  reason: "FalsePositive",
+                  comment: ignoreComment || undefined,
+                },
+              ),
+            ),
+          );
+          spinner.succeed(
+            `Ignored ${toIgnore.length} potential false positive issue(s) (reason: FalsePositive).`,
+          );
+          return;
+        }
+
+        // --unignore-issue <id>: find and unignore a specific PR issue by resultDataId
+        if (unignoreIssueIdStr !== undefined) {
+          const unignoreIssueId = parseInt(unignoreIssueIdStr, 10);
+          if (isNaN(unignoreIssueId)) {
+            console.error(ansis.red("Error: --unignore-issue must be a number."));
+            process.exit(1);
+          }
+
+          const spinner = ora("Fetching PR issues...").start();
+
+          const [allNew, allPotential] = await Promise.all([
+            fetchAllPrIssues(provider, organization, repository, prNumber, false),
+            fetchAllPrIssues(provider, organization, repository, prNumber, true),
+          ]);
+
+          const found = [...allNew, ...allPotential]
+            .filter((i) => i.deltaType === "Added")
+            .find((i) => i.commitIssue.resultDataId === unignoreIssueId);
+
+          if (!found) {
+            spinner.fail(`Issue #${unignoreIssueId} not found in this pull request.`);
+            process.exit(1);
+          }
+
+          spinner.text = "Unignoring issue...";
+          await AnalysisService.updateIssueState(
+            provider,
+            organization,
+            repository,
+            found.commitIssue.issueId,
+            { ignored: false },
+          );
+          spinner.succeed(`Issue #${unignoreIssueId} unignored.`);
+          return;
+        }
 
         // --issue <id>: fetch all PR issues, find by resultDataId, show detail
         if (issueIdStr !== undefined) {

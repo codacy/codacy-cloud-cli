@@ -8,6 +8,7 @@ import { printIssueDetail } from "../utils/formatting";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 import { ToolsService } from "../api/client/services/ToolsService";
 import { FileService } from "../api/client/services/FileService";
+import { IssueStateBody } from "../api/client/models/IssueStateBody";
 
 export function registerIssueCommand(program: Command) {
   program
@@ -18,12 +19,23 @@ export function registerIssueCommand(program: Command) {
     .argument("<organization>", "organization name")
     .argument("<repository>", "repository name")
     .argument("<issueId>", "issue ID (shown at the bottom of each issue card)")
+    .option("-I, --ignore", "ignore this issue")
+    .option(
+      "-R, --ignore-reason <reason>",
+      "reason for ignoring (AcceptedUse|FalsePositive|NotExploitable|TestCode|ExternalCode)",
+      "AcceptedUse",
+    )
+    .option("-m, --ignore-comment <comment>", "optional comment for the ignore action", "")
+    .option("-U, --unignore", "unignore this issue")
     .addHelpText(
       "after",
       `
 Examples:
   $ codacy issue gh my-org my-repo 12345
-  $ codacy issue gh my-org my-repo 12345 --output json`,
+  $ codacy issue gh my-org my-repo 12345 --output json
+  $ codacy issue gh my-org my-repo 12345 --ignore
+  $ codacy issue gh my-org my-repo 12345 --ignore --ignore-reason FalsePositive --ignore-comment "Not applicable here"
+  $ codacy issue gh my-org my-repo 12345 --unignore`,
     )
     .action(async function (
       this: Command,
@@ -36,6 +48,10 @@ Examples:
         checkApiToken();
         const format = getOutputFormat(this);
         const issueId = parseInt(issueIdStr, 10);
+        const shouldIgnore: boolean = !!this.opts().ignore;
+        const shouldUnignore: boolean = !!this.opts().unignore;
+        const ignoreReason = this.opts().ignoreReason as IssueStateBody["reason"];
+        const ignoreComment: string = this.opts().ignoreComment;
 
         if (isNaN(issueId)) {
           console.error(ansis.red(`Invalid issue ID: ${issueIdStr}`));
@@ -86,7 +102,39 @@ Examples:
           return;
         }
 
-        printIssueDetail(issue, pattern, lines);
+        if (!shouldIgnore && !shouldUnignore) {
+          printIssueDetail(issue, pattern, lines);
+        }
+
+        if (shouldIgnore) {
+          const ignoreSpinner = ora("Ignoring issue...").start();
+          await AnalysisService.updateIssueState(
+            provider,
+            organization,
+            repository,
+            issue.issueId,
+            {
+              ignored: true,
+              reason: ignoreReason,
+              comment: ignoreComment || undefined,
+            },
+          );
+          ignoreSpinner.succeed(
+            `Issue #${issueId} ignored (reason: ${ignoreReason}).`,
+          );
+        }
+
+        if (shouldUnignore) {
+          const unignoreSpinner = ora("Unignoring issue...").start();
+          await AnalysisService.updateIssueState(
+            provider,
+            organization,
+            repository,
+            issue.issueId,
+            { ignored: false },
+          );
+          unignoreSpinner.succeed(`Issue #${issueId} unignored.`);
+        }
       } catch (err) {
         handleError(err);
       }

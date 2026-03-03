@@ -1257,4 +1257,218 @@ describe("pull-request command", () => {
     const output = getAllOutput();
     expect(output).toContain("Potential SQL injection vulnerability");
   });
+
+  // ─── --ignore-issue ─────────────────────────────────────────────────────
+
+  describe("--ignore-issue option", () => {
+    beforeEach(() => {
+      vi.mocked(AnalysisService.updateIssueState).mockResolvedValue(
+        undefined as any,
+      );
+    });
+
+    it("should find and ignore a specific issue by resultDataId", async () => {
+      vi.mocked(AnalysisService.listPullRequestIssues)
+        .mockResolvedValueOnce({ data: mockNewIssues.data, pagination: undefined } as any)
+        .mockResolvedValueOnce({ data: mockPotentialIssues.data, pagination: undefined } as any);
+
+      const program = createProgram();
+      // Issue with resultDataId=2 is "issue-2" (UUID)
+      await program.parseAsync([
+        "node", "test", "pull-request", "gh", "test-org", "test-repo", "42",
+        "--ignore-issue", "2",
+      ]);
+
+      expect(AnalysisService.updateIssueState).toHaveBeenCalledWith(
+        "gh",
+        "test-org",
+        "test-repo",
+        "issue-2",
+        { ignored: true, reason: "AcceptedUse", comment: undefined },
+      );
+    });
+
+    it("should use specified ignore reason and comment", async () => {
+      vi.mocked(AnalysisService.listPullRequestIssues)
+        .mockResolvedValueOnce({ data: mockNewIssues.data, pagination: undefined } as any)
+        .mockResolvedValueOnce({ data: mockPotentialIssues.data, pagination: undefined } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "pull-request", "gh", "test-org", "test-repo", "42",
+        "--ignore-issue", "1",
+        "--ignore-reason", "FalsePositive",
+        "--ignore-comment", "Reviewed and confirmed safe",
+      ]);
+
+      expect(AnalysisService.updateIssueState).toHaveBeenCalledWith(
+        "gh",
+        "test-org",
+        "test-repo",
+        "issue-1",
+        { ignored: true, reason: "FalsePositive", comment: "Reviewed and confirmed safe" },
+      );
+    });
+
+    it("should also find and ignore a potential issue by resultDataId", async () => {
+      vi.mocked(AnalysisService.listPullRequestIssues)
+        .mockResolvedValueOnce({ data: [], pagination: undefined } as any)
+        .mockResolvedValueOnce({ data: mockPotentialIssues.data, pagination: undefined } as any);
+
+      const program = createProgram();
+      // resultDataId=10 is in mockPotentialIssues → "issue-p1"
+      await program.parseAsync([
+        "node", "test", "pull-request", "gh", "test-org", "test-repo", "42",
+        "--ignore-issue", "10",
+      ]);
+
+      expect(AnalysisService.updateIssueState).toHaveBeenCalledWith(
+        "gh",
+        "test-org",
+        "test-repo",
+        "issue-p1",
+        { ignored: true, reason: "AcceptedUse", comment: undefined },
+      );
+    });
+
+    it("should fail when --ignore-issue <id> is not found in the PR", async () => {
+      vi.mocked(AnalysisService.listPullRequestIssues)
+        .mockResolvedValueOnce({ data: mockNewIssues.data, pagination: undefined } as any)
+        .mockResolvedValueOnce({ data: mockPotentialIssues.data, pagination: undefined } as any);
+
+      const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit called");
+      });
+
+      const program = createProgram();
+      await expect(
+        program.parseAsync([
+          "node", "test", "pull-request", "gh", "test-org", "test-repo", "42",
+          "--ignore-issue", "9999",
+        ]),
+      ).rejects.toThrow("process.exit called");
+
+      mockExit.mockRestore();
+    });
+  });
+
+  // ─── --ignore-all-false-positives ───────────────────────────────────────
+
+  describe("--ignore-all-false-positives option", () => {
+    beforeEach(() => {
+      vi.mocked(AnalysisService.updateIssueState).mockResolvedValue(
+        undefined as any,
+      );
+    });
+
+    it("should fetch potential issues and ignore them all with reason FalsePositive", async () => {
+      vi.mocked(AnalysisService.listPullRequestIssues).mockResolvedValueOnce({
+        data: mockPotentialIssues.data,
+        pagination: undefined,
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "pull-request", "gh", "test-org", "test-repo", "42",
+        "--ignore-all-false-positives",
+      ]);
+
+      // mockPotentialIssues has 1 issue: issue-p1
+      expect(AnalysisService.updateIssueState).toHaveBeenCalledTimes(1);
+      expect(AnalysisService.updateIssueState).toHaveBeenCalledWith(
+        "gh",
+        "test-org",
+        "test-repo",
+        "issue-p1",
+        { ignored: true, reason: "FalsePositive", comment: undefined },
+      );
+    });
+
+    it("should apply --ignore-comment to all ignored issues", async () => {
+      vi.mocked(AnalysisService.listPullRequestIssues).mockResolvedValueOnce({
+        data: mockPotentialIssues.data,
+        pagination: undefined,
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "pull-request", "gh", "test-org", "test-repo", "42",
+        "--ignore-all-false-positives",
+        "--ignore-comment", "Bulk ignored after review",
+      ]);
+
+      expect(AnalysisService.updateIssueState).toHaveBeenCalledWith(
+        "gh",
+        "test-org",
+        "test-repo",
+        "issue-p1",
+        { ignored: true, reason: "FalsePositive", comment: "Bulk ignored after review" },
+      );
+    });
+
+    it("should show a message when no potential false positive issues are found", async () => {
+      vi.mocked(AnalysisService.listPullRequestIssues).mockResolvedValueOnce({
+        data: [],
+        pagination: undefined,
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "pull-request", "gh", "test-org", "test-repo", "42",
+        "--ignore-all-false-positives",
+      ]);
+
+      expect(AnalysisService.updateIssueState).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── --unignore-issue ────────────────────────────────────────────────────
+
+  describe("--unignore-issue option", () => {
+    beforeEach(() => {
+      vi.mocked(AnalysisService.updateIssueState).mockResolvedValue(
+        undefined as any,
+      );
+    });
+
+    it("should find and unignore a specific issue by resultDataId", async () => {
+      vi.mocked(AnalysisService.listPullRequestIssues)
+        .mockResolvedValueOnce({ data: mockNewIssues.data, pagination: undefined } as any)
+        .mockResolvedValueOnce({ data: mockPotentialIssues.data, pagination: undefined } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "pull-request", "gh", "test-org", "test-repo", "42",
+        "--unignore-issue", "3",
+      ]);
+
+      expect(AnalysisService.updateIssueState).toHaveBeenCalledWith(
+        "gh",
+        "test-org",
+        "test-repo",
+        "issue-3",
+        { ignored: false },
+      );
+    });
+
+    it("should fail when --unignore-issue <id> is not found in the PR", async () => {
+      vi.mocked(AnalysisService.listPullRequestIssues)
+        .mockResolvedValueOnce({ data: mockNewIssues.data, pagination: undefined } as any)
+        .mockResolvedValueOnce({ data: mockPotentialIssues.data, pagination: undefined } as any);
+
+      const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit called");
+      });
+
+      const program = createProgram();
+      await expect(
+        program.parseAsync([
+          "node", "test", "pull-request", "gh", "test-org", "test-repo", "42",
+          "--unignore-issue", "9999",
+        ]),
+      ).rejects.toThrow("process.exit called");
+
+      mockExit.mockRestore();
+    });
+  });
 });

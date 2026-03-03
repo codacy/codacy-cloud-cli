@@ -12,6 +12,7 @@ import {
   printIssueCodeContext,
 } from "../utils/formatting";
 import { SecurityService } from "../api/client/services/SecurityService";
+import { IgnoreSRMItemBody } from "../api/client/models/IgnoreSRMItemBody";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 import { ToolsService } from "../api/client/services/ToolsService";
 import { FileService } from "../api/client/services/FileService";
@@ -140,12 +141,23 @@ export function registerFindingCommand(program: Command) {
       "<findingId>",
       "finding ID (shown at the end of each finding card)",
     )
+    .option("-I, --ignore", "ignore this finding")
+    .option(
+      "-R, --ignore-reason <reason>",
+      "reason for ignoring (AcceptedUse|FalsePositive|NotExploitable|TestCode|ExternalCode)",
+      "AcceptedUse",
+    )
+    .option("-m, --ignore-comment <comment>", "optional comment for the ignore action", "")
+    .option("-U, --unignore", "unignore this finding")
     .addHelpText(
       "after",
       `
 Examples:
   $ codacy finding gh my-org abc123-uuid
-  $ codacy finding gh my-org abc123-uuid --output json`,
+  $ codacy finding gh my-org abc123-uuid --output json
+  $ codacy finding gh my-org abc123-uuid --ignore
+  $ codacy finding gh my-org abc123-uuid --ignore --ignore-reason FalsePositive --ignore-comment "Verified safe"
+  $ codacy finding gh my-org abc123-uuid --unignore`,
     )
     .action(async function (
       this: Command,
@@ -156,6 +168,10 @@ Examples:
       try {
         checkApiToken();
         const format = getOutputFormat(this);
+        const shouldIgnore: boolean = !!this.opts().ignore;
+        const shouldUnignore: boolean = !!this.opts().unignore;
+        const ignoreReason: string = this.opts().ignoreReason;
+        const ignoreComment: string = this.opts().ignoreComment;
         const spinner = ora("Fetching finding details...").start();
 
         const findingResponse = await SecurityService.getSecurityItem(
@@ -219,7 +235,32 @@ Examples:
           return;
         }
 
-        printFindingDetail(item, qualityIssue, pattern, fileLines, cveData);
+        if (!shouldIgnore && !shouldUnignore) {
+          printFindingDetail(item, qualityIssue, pattern, fileLines, cveData);
+        }
+
+        if (shouldIgnore) {
+          const ignoreSpinner = ora("Ignoring finding...").start();
+          await SecurityService.ignoreSecurityItem(
+            provider,
+            organization,
+            findingId,
+            { reason: ignoreReason, comment: ignoreComment || undefined },
+          );
+          ignoreSpinner.succeed(
+            `Finding ${findingId} ignored (reason: ${ignoreReason}).`,
+          );
+        }
+
+        if (shouldUnignore) {
+          const unignoreSpinner = ora("Unignoring finding...").start();
+          await SecurityService.unignoreSecurityItem(
+            provider,
+            organization,
+            findingId,
+          );
+          unignoreSpinner.succeed(`Finding ${findingId} unignored.`);
+        }
       } catch (err) {
         handleError(err);
       }

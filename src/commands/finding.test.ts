@@ -538,4 +538,117 @@ describe("finding command", () => {
 
     mockExit.mockRestore();
   });
+
+  describe("--ignore option", () => {
+    beforeEach(() => {
+      vi.mocked(SecurityService.getSecurityItem).mockResolvedValue({
+        data: mockScaFinding,
+      } as any);
+      vi.mocked(SecurityService.ignoreSecurityItem).mockResolvedValue({
+        data: mockScaFinding,
+      } as any);
+    });
+
+    it("should call ignoreSecurityItem with default reason when --ignore is specified", async () => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "finding", "gh", "test-org", "abc-123-sca",
+        "--ignore",
+      ]);
+
+      expect(SecurityService.ignoreSecurityItem).toHaveBeenCalledWith(
+        "gh",
+        "test-org",
+        "abc-123-sca",
+        { reason: "AcceptedUse", comment: undefined },
+      );
+      // Finding details should NOT be shown when --ignore is passed
+      const output = getAllOutput();
+      expect(output).not.toContain("Prototype Pollution in lodash");
+    });
+
+    it("should call ignoreSecurityItem with specified reason", async () => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "finding", "gh", "test-org", "abc-123-sca",
+        "--ignore", "--ignore-reason", "FalsePositive",
+      ]);
+
+      expect(SecurityService.ignoreSecurityItem).toHaveBeenCalledWith(
+        "gh",
+        "test-org",
+        "abc-123-sca",
+        { reason: "FalsePositive", comment: undefined },
+      );
+    });
+
+    it("should pass ignore comment when --ignore-comment is specified", async () => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "finding", "gh", "test-org", "abc-123-sca",
+        "--ignore", "--ignore-comment", "Verified safe in this context",
+      ]);
+
+      expect(SecurityService.ignoreSecurityItem).toHaveBeenCalledWith(
+        "gh",
+        "test-org",
+        "abc-123-sca",
+        { reason: "AcceptedUse", comment: "Verified safe in this context" },
+      );
+    });
+
+    it("should not call ignoreSecurityItem when --ignore is not specified", async () => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "finding", "gh", "test-org", "abc-123-sca",
+      ]);
+
+      expect(SecurityService.ignoreSecurityItem).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("--unignore option", () => {
+    beforeEach(() => {
+      vi.mocked(SecurityService.getSecurityItem).mockResolvedValue({
+        data: mockScaFinding,
+      } as any);
+      vi.mocked(SecurityService.unignoreSecurityItem).mockResolvedValue({
+        data: mockScaFinding,
+      } as any);
+    });
+
+    it("should call unignoreSecurityItem when --unignore is specified", async () => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "finding", "gh", "test-org", "abc-123-sca",
+        "--unignore",
+      ]);
+
+      expect(SecurityService.unignoreSecurityItem).toHaveBeenCalledWith(
+        "gh",
+        "test-org",
+        "abc-123-sca",
+      );
+    });
+
+    it("should not render finding details when --unignore is specified", async () => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "finding", "gh", "test-org", "abc-123-sca",
+        "--unignore",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).not.toContain("Prototype Pollution in lodash");
+    });
+
+    it("should not call unignoreSecurityItem when --unignore is not specified", async () => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "finding", "gh", "test-org", "abc-123-sca",
+      ]);
+
+      expect(SecurityService.unignoreSecurityItem).not.toHaveBeenCalled();
+    });
+  });
 });

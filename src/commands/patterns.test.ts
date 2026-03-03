@@ -251,6 +251,35 @@ describe("patterns command", () => {
     );
   });
 
+  it("should normalize category names case-insensitively", async () => {
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "patterns",
+      "gh",
+      "test-org",
+      "test-repo",
+      "eslint",
+      "--categories",
+      "security,code style,error-prone",
+    ]);
+
+    expect(AnalysisService.listRepositoryToolPatterns).toHaveBeenCalledWith(
+      "gh",
+      "test-org",
+      "test-repo",
+      "uuid-eslint",
+      undefined,
+      "Security,CodeStyle,ErrorProne",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    );
+  });
+
   it("should pass --recommended filter to the API", async () => {
     const program = createProgram();
     await program.parseAsync([

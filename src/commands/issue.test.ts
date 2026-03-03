@@ -4,6 +4,7 @@ import { registerIssueCommand } from "./issue";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 import { ToolsService } from "../api/client/services/ToolsService";
 import { FileService } from "../api/client/services/FileService";
+import { IssueStateBody } from "../api/client/models/IssueStateBody";
 
 vi.mock("../api/client/services/AnalysisService");
 vi.mock("../api/client/services/ToolsService");
@@ -311,5 +312,117 @@ describe("issue command", () => {
     ).rejects.toThrow("process.exit called");
 
     mockExit.mockRestore();
+  });
+
+  describe("--ignore option", () => {
+    beforeEach(() => {
+      vi.mocked(AnalysisService.updateIssueState).mockResolvedValue(
+        undefined as any,
+      );
+    });
+
+    it("should call updateIssueState with default reason when --ignore is specified", async () => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issue", "gh", "test-org", "test-repo", "42",
+        "--ignore",
+      ]);
+
+      expect(AnalysisService.updateIssueState).toHaveBeenCalledWith(
+        "gh",
+        "test-org",
+        "test-repo",
+        "uuid-abc-123",
+        { ignored: true, reason: "AcceptedUse", comment: undefined } satisfies IssueStateBody,
+      );
+      // Issue details should NOT be shown when --ignore is passed
+      const output = getAllOutput();
+      expect(output).not.toContain("Potential SQL injection vulnerability");
+    });
+
+    it("should call updateIssueState with specified reason", async () => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issue", "gh", "test-org", "test-repo", "42",
+        "--ignore", "--ignore-reason", "FalsePositive",
+      ]);
+
+      expect(AnalysisService.updateIssueState).toHaveBeenCalledWith(
+        "gh",
+        "test-org",
+        "test-repo",
+        "uuid-abc-123",
+        { ignored: true, reason: "FalsePositive", comment: undefined } satisfies IssueStateBody,
+      );
+    });
+
+    it("should pass ignore comment when --ignore-comment is specified", async () => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issue", "gh", "test-org", "test-repo", "42",
+        "--ignore", "--ignore-comment", "Reviewed and accepted",
+      ]);
+
+      expect(AnalysisService.updateIssueState).toHaveBeenCalledWith(
+        "gh",
+        "test-org",
+        "test-repo",
+        "uuid-abc-123",
+        { ignored: true, reason: "AcceptedUse", comment: "Reviewed and accepted" } satisfies IssueStateBody,
+      );
+    });
+
+    it("should not call updateIssueState when --ignore is not specified", async () => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issue", "gh", "test-org", "test-repo", "42",
+      ]);
+
+      expect(AnalysisService.updateIssueState).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("--unignore option", () => {
+    beforeEach(() => {
+      vi.mocked(AnalysisService.updateIssueState).mockResolvedValue(
+        undefined as any,
+      );
+    });
+
+    it("should call updateIssueState with ignored:false when --unignore is specified", async () => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issue", "gh", "test-org", "test-repo", "42",
+        "--unignore",
+      ]);
+
+      expect(AnalysisService.updateIssueState).toHaveBeenCalledWith(
+        "gh",
+        "test-org",
+        "test-repo",
+        "uuid-abc-123",
+        { ignored: false },
+      );
+    });
+
+    it("should not render issue details when --unignore is specified", async () => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issue", "gh", "test-org", "test-repo", "42",
+        "--unignore",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).not.toContain("Potential SQL injection vulnerability");
+    });
+
+    it("should not call updateIssueState when --unignore is not specified", async () => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issue", "gh", "test-org", "test-repo", "42",
+      ]);
+
+      expect(AnalysisService.updateIssueState).not.toHaveBeenCalled();
+    });
   });
 });
