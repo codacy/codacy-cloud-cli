@@ -17,8 +17,8 @@ codacy is gh my-org my-repo --output json
 
 ## API Endpoints
 
-- [`searchRepositoryIssues`](https://api.codacy.com/api/api-docs#searchrepositoryissues) — `AnalysisService.searchRepositoryIssues(provider, org, repo, body)`
-- [`issuesOverview`](https://api.codacy.com/api/api-docs#issuesoverview) — `AnalysisService.issuesOverview(provider, org, repo)` (only when `--overview` is given)
+- [`searchRepositoryIssues`](https://api.codacy.com/api/api-docs#searchrepositoryissues) — `AnalysisService.searchRepositoryIssues(provider, org, repo, cursor, limit, body)`
+- [`issuesOverview`](https://api.codacy.com/api/api-docs#issuesoverview) — `AnalysisService.issuesOverview(provider, org, repo, body)` (only when `--overview` is given)
 
 Both accept the same `SearchRepositoryIssuesBody` for filtering.
 
@@ -28,8 +28,8 @@ Both accept the same `SearchRepositoryIssuesBody` for filtering.
 |---|---|---|
 | `--branch <branch>` | `-b` | Branch name |
 | `--patterns <patterns>` | `-p` | Comma-separated pattern IDs |
-| `--severities <severities>` | `-s` | Comma-separated severity levels |
-| `--categories <categories>` | `-c` | Comma-separated category names |
+| `--severities <severities>` | `-s` | Comma-separated severity levels: Critical, High, Medium, Minor (or Error, Warning, Info) |
+| `--categories <categories>` | `-c` | Comma-separated category names (e.g. Security, CodeStyle, ErrorProne) |
 | `--languages <languages>` | `-l` | Comma-separated language names |
 | `--tags <tags>` | `-t` | Comma-separated tag names |
 | `--authors <authors>` | `-a` | Comma-separated author emails |
@@ -39,15 +39,15 @@ Both accept the same `SearchRepositoryIssuesBody` for filtering.
 
 ### List mode (default)
 
-Card-style format (same as pull-request issues):
+Card-style format, sorted by severity (Error > High > Warning > Info):
 
 ```
 ────────────────────────────────────────
 
-{Severity colored} | {Category} {SubCategory?} | {Tool}: {Pattern title}
+{Severity colored} | {Category} {SubCategory?}   #{resultDataId dimmed}
 {Issue message}
 
-{FilePath}:{LineNumber}   ID: {resultDataId}
+{FilePath}:{LineNumber}
 {LineText}
 {Optional: Potential false positive warning}
 
@@ -56,9 +56,11 @@ Card-style format (same as pull-request issues):
 
 Severity colors: Error=red, High=orange, Warning=yellow, Info=blue.
 
+Shows pagination warning if more results exist.
+
 ### Overview mode (`--overview`)
 
-Four count tables: by language, category, severity, tag, and author.
+Six count tables sorted descending by count: Category, Severity, Language, Tag, Pattern, Author.
 
 ## Tests
 

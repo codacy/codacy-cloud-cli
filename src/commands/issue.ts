@@ -3,7 +3,7 @@ import ora from "ora";
 import ansis from "ansis";
 import { checkApiToken } from "../utils/auth";
 import { handleError } from "../utils/error";
-import { getOutputFormat, printJson } from "../utils/output";
+import { getOutputFormat, pickDeep, printJson } from "../utils/output";
 import { printIssueDetail } from "../utils/formatting";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 import { ToolsService } from "../api/client/services/ToolsService";
@@ -98,7 +98,34 @@ Examples:
         const lines = fileContentResponse?.data ?? null;
 
         if (format === "json") {
-          printJson({ issue, pattern, lines });
+          printJson(pickDeep({ issue, pattern, lines }, [
+            // Issue
+            "issue.patternInfo.severityLevel",
+            "issue.patternInfo.category",
+            "issue.patternInfo.subCategory",
+            "issue.patternInfo.id",
+            "issue.message",
+            "issue.filePath",
+            "issue.lineNumber",
+            "issue.lineText",
+            "issue.suggestion",
+            "issue.resultDataId",
+            "issue.issueId",
+            "issue.toolInfo.name",
+            "issue.toolInfo.uuid",
+            "issue.falsePositiveProbability",
+            "issue.falsePositiveThreshold",
+            "issue.falsePositiveReason",
+            // Pattern
+            "pattern.id",
+            "pattern.title",
+            "pattern.description",
+            "pattern.rationale",
+            "pattern.solution",
+            "pattern.tags",
+            // Code lines
+            "lines",
+          ]));
           return;
         }
 

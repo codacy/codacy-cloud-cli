@@ -5,6 +5,7 @@ import { checkApiToken } from "../utils/auth";
 import { handleError } from "../utils/error";
 import {
   getOutputFormat,
+  pickDeep,
   printJson,
   printPaginationWarning,
 } from "../utils/output";
@@ -234,7 +235,27 @@ Examples:
         const total = response.pagination?.total ?? items.length;
 
         if (format === "json") {
-          printJson({ findings: items, total });
+          printJson({
+            findings: items.map((item: any) => pickDeep(item, [
+              "id",
+              "title",
+              "priority",
+              "securityCategory",
+              "scanType",
+              "likelihood",
+              "effortToFix",
+              "repository",
+              "status",
+              "dueAt",
+              "cve",
+              "cwe",
+              "affectedVersion",
+              "fixedVersion",
+              "application",
+              "affectedTargets",
+            ])),
+            total,
+          });
           return;
         }
 

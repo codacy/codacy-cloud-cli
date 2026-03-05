@@ -8,6 +8,27 @@ vi.mock("../api/client/services/AnalysisService");
 vi.mock("../api/client/services/RepositoryService");
 vi.spyOn(console, "log").mockImplementation(() => {});
 
+// Default mocks for analysis status API calls (overridden in specific tests)
+function setupDefaultMocks() {
+  vi.mocked(AnalysisService.listRepositoryCommits).mockResolvedValue({
+    data: [{
+      commit: {
+        sha: "abc1234567890",
+        id: 1,
+        commitTimestamp: "2025-06-15T10:00:00Z",
+        authorName: "Test",
+        authorEmail: "test@test.com",
+        message: "fix things",
+        startedAnalysis: "2025-06-15T10:00:00Z",
+        endedAnalysis: "2025-06-15T10:05:00Z",
+      },
+    }],
+  } as any);
+  vi.mocked(RepositoryService.listCoverageReports).mockResolvedValue({
+    data: { hasCoverageOverview: false },
+  } as any);
+}
+
 function createProgram(): Command {
   const program = new Command();
   program.option("-o, --output <format>", "output format", "table");
@@ -118,6 +139,7 @@ describe("repository command", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.CODACY_API_TOKEN = "test-token";
+    setupDefaultMocks();
   });
 
   it("should fetch and display repository details in table format", async () => {
@@ -553,5 +575,115 @@ describe("repository command", () => {
       .join("\n");
     expect(allOutput).toContain("test-repo");
     expect(allOutput).toContain("Unfollowed");
+  });
+
+  // ─── Reanalyze ──────────────────────────────────────────────────────────
+
+  it("should request reanalysis with --reanalyze", async () => {
+    vi.mocked(AnalysisService.listRepositoryCommits).mockResolvedValue({
+      data: [{
+        commit: {
+          sha: "abc1234567890",
+          id: 1,
+          commitTimestamp: "2025-06-15T10:00:00Z",
+          authorName: "Test",
+          authorEmail: "test@test.com",
+          message: "fix things",
+          startedAnalysis: "2025-06-15T10:00:00Z",
+          endedAnalysis: "2025-06-15T10:05:00Z",
+        },
+      }],
+    } as any);
+    vi.mocked(RepositoryService.reanalyzeCommitById).mockResolvedValue(undefined as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "repository", "gh", "test-org", "test-repo", "--reanalyze",
+    ]);
+
+    expect(RepositoryService.reanalyzeCommitById).toHaveBeenCalledWith(
+      "gh", "test-org", "test-repo", { commitUuid: "abc1234567890" },
+    );
+  });
+
+  it("should show error when reanalysis fails with no commits", async () => {
+    vi.mocked(AnalysisService.listRepositoryCommits).mockResolvedValue({
+      data: [],
+    } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "repository", "gh", "test-org", "test-repo", "--reanalyze",
+    ]);
+
+    // Should not call reanalyze
+    expect(RepositoryService.reanalyzeCommitById).not.toHaveBeenCalled();
+  });
+
+  // ─── Analysis status ────────────────────────────────────────────────────
+
+  it("should show analysis status in About section", async () => {
+    vi.mocked(AnalysisService.getRepositoryWithAnalysis).mockResolvedValue({
+      data: mockRepoData as any,
+    });
+    vi.mocked(AnalysisService.listRepositoryPullRequests).mockResolvedValue({
+      data: [] as any,
+    });
+    vi.mocked(AnalysisService.issuesOverview).mockResolvedValue({
+      data: { counts: { categories: [], levels: [], languages: [], tags: [], patterns: [], authors: [] } },
+    });
+    // Head commit with finished analysis
+    vi.mocked(AnalysisService.listRepositoryCommits).mockResolvedValue({
+      data: [{
+        commit: {
+          sha: "head123456789",
+          id: 1,
+          commitTimestamp: "2025-06-15T10:00:00Z",
+          authorName: "Test",
+          authorEmail: "test@test.com",
+          message: "fix things",
+          startedAnalysis: "2025-06-15T10:00:00Z",
+          endedAnalysis: "2025-06-15T10:05:00Z",
+        },
+      }],
+    } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "repository", "gh", "test-org", "test-repo",
+    ]);
+
+    const allOutput = (console.log as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => c[0])
+      .join("\n");
+    expect(allOutput).toContain("Finished");
+    expect(allOutput).toContain("head123");
+  });
+
+  it("should filter JSON output with pickDeep", async () => {
+    vi.mocked(AnalysisService.getRepositoryWithAnalysis).mockResolvedValue({
+      data: mockRepoData as any,
+    });
+    vi.mocked(AnalysisService.listRepositoryPullRequests).mockResolvedValue({
+      data: [] as any,
+    });
+    vi.mocked(AnalysisService.issuesOverview).mockResolvedValue({
+      data: { counts: { categories: [], levels: [], languages: [], tags: [], patterns: [], authors: [] } },
+    });
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "--output", "json", "repository", "gh", "test-org", "test-repo",
+    ]);
+
+    const jsonCall = (console.log as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    const parsed = JSON.parse(jsonCall);
+    // Should include filtered fields
+    expect(parsed.repository.repository.name).toBe("test-repo");
+    expect(parsed.repository.issuesCount).toBe(25);
+    // Should NOT include non-picked fields
+    expect(parsed.repository.gradeLetter).toBeUndefined();
+    expect(parsed.repository.grade).toBeUndefined();
+    expect(parsed.repository.repository.repositoryId).toBeUndefined();
   });
 });

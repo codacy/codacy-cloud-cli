@@ -7,6 +7,7 @@ import {
   createTable,
   formatFriendlyDate,
   getOutputFormat,
+  pickDeep,
   printJson,
   printPaginationWarning,
 } from "../utils/output";
@@ -23,6 +24,7 @@ import {
   formatPrIssues,
   printIssueCard,
   printIssueDetail,
+  formatAnalysisStatus,
   GateStatusMap,
 } from "../utils/formatting";
 import { AnalysisService } from "../api/client/services/AnalysisService";
@@ -152,6 +154,9 @@ function printAbout(
   pr: PullRequestWithAnalysis,
   provider: string,
   organization: string,
+  headCommitTiming: { startedAnalysis?: string; endedAnalysis?: string } | null,
+  expectsCoverage: boolean,
+  hasCoverageData: boolean,
 ): void {
   printSection("About");
   const p = pr.pullRequest;
@@ -166,11 +171,20 @@ function printAbout(
     Branches: `${p.originBranch || "N/A"} → ${p.targetBranch || "N/A"}`,
   });
   table.push({ Updated: formatFriendlyDate(p.updated) });
-  table.push({
-    "Head Commit": p.headCommitSha
-      ? p.headCommitSha.substring(0, 7)
-      : ansis.dim("N/A"),
-  });
+
+  if (p.headCommitSha) {
+    table.push({
+      Analysis: formatAnalysisStatus({
+        commitSha: p.headCommitSha,
+        startedAnalysis: headCommitTiming?.startedAnalysis,
+        endedAnalysis: headCommitTiming?.endedAnalysis,
+        expectsCoverage,
+        hasCoverageData,
+      }),
+    });
+  } else {
+    table.push({ Analysis: ansis.dim("N/A") });
+  }
   console.log(table.toString());
 }
 
@@ -673,6 +687,10 @@ export function registerPullRequestCommand(program: Command) {
       "-U, --unignore-issue <issueId>",
       "unignore a specific issue in this PR (use the #id shown on issue cards)",
     )
+    .option(
+      "-A, --reanalyze",
+      "request reanalysis of the HEAD commit of this pull request",
+    )
     .addHelpText(
       "after",
       `
@@ -684,7 +702,8 @@ Examples:
   $ codacy-cloud-cli pull-request gh my-org my-repo 42 --ignore-issue 9901
   $ codacy-cloud-cli pull-request gh my-org my-repo 42 --ignore-issue 9901 --ignore-reason FalsePositive
   $ codacy-cloud-cli pull-request gh my-org my-repo 42 --ignore-all-false-positives
-  $ codacy-cloud-cli pull-request gh my-org my-repo 42 --unignore-issue 9901`,
+  $ codacy-cloud-cli pull-request gh my-org my-repo 42 --unignore-issue 9901
+  $ codacy-cloud-cli pull-request gh my-org my-repo 42 --reanalyze`,
     )
     .action(async function (
       this: Command,
@@ -699,6 +718,38 @@ Examples:
         if (isNaN(prNumber)) {
           console.error(ansis.red("Error: prNumber must be a number."));
           process.exit(1);
+        }
+
+        // --reanalyze: request reanalysis of the HEAD commit
+        if (this.opts().reanalyze) {
+          const spinner = ora("Requesting reanalysis...").start();
+          try {
+            const prResponse = await AnalysisService.getRepositoryPullRequest(
+              provider,
+              organization,
+              repository,
+              prNumber,
+            );
+            const headSha = (prResponse as any).pullRequest?.headCommitSha;
+            if (!headSha) {
+              spinner.fail("No HEAD commit found for this pull request.");
+              return;
+            }
+            await RepositoryService.reanalyzeCommitById(
+              provider,
+              organization,
+              repository,
+              { commitUuid: headSha },
+            );
+            spinner.succeed(
+              "Reanalysis requested successfully, new results will be available in a few minutes.",
+            );
+          } catch (reanalyzeErr) {
+            spinner.fail(
+              `Failed to request reanalysis: ${reanalyzeErr instanceof Error ? reanalyzeErr.message : reanalyzeErr}`,
+            );
+          }
+          return;
         }
 
         const format = getOutputFormat(this);
@@ -892,7 +943,35 @@ Examples:
           const lines = fileContentResponse?.data ?? null;
 
           if (format === "json") {
-            printJson({ issue, pattern, lines });
+            printJson(pickDeep({ issue, pattern, lines }, [
+              // Issue header
+              "issue.patternInfo.severityLevel",
+              "issue.patternInfo.category",
+              "issue.patternInfo.subCategory",
+              "issue.message",
+              "issue.filePath",
+              "issue.lineNumber",
+              "issue.lineText",
+              "issue.suggestion",
+              "issue.resultDataId",
+              "issue.issueId",
+              "issue.toolInfo.name",
+              "issue.toolInfo.uuid",
+              "issue.patternInfo.id",
+              "issue.falsePositiveProbability",
+              "issue.falsePositiveThreshold",
+              "issue.falsePositiveReason",
+              "issue.commitInfo.sha",
+              // Pattern
+              "pattern.id",
+              "pattern.title",
+              "pattern.description",
+              "pattern.rationale",
+              "pattern.solution",
+              "pattern.tags",
+              // Code lines
+              "lines",
+            ]));
             return;
           }
 
@@ -979,6 +1058,8 @@ Examples:
           potentialIssuesResponse,
           filesResponse,
           coverageResponse,
+          prCommitsResponse,
+          coverageReportsResponse,
         ] = await Promise.all([
           AnalysisService.getRepositoryPullRequest(
             provider,
@@ -1014,6 +1095,19 @@ Examples:
             repository,
             prNumber,
           ).catch(() => ({ data: [] as FileDiffCoverage[] })),
+          AnalysisService.getPullRequestCommits(
+            provider,
+            organization,
+            repository,
+            prNumber,
+            1,
+          ).catch(() => ({ data: [] })),
+          RepositoryService.listCoverageReports(
+            provider,
+            organization,
+            repository,
+            1,
+          ).catch(() => ({ data: { hasCoverageOverview: false } })),
         ]);
 
         spinner.stop();
@@ -1025,17 +1119,49 @@ Examples:
           potentialIssuesResponse as any;
         const filesData: FileAnalysisListResponse = filesResponse as any;
 
+        // Head commit timing for analysis status
+        const prHeadCommit = (prCommitsResponse as any).data?.[0]?.commit ?? null;
+        const prExpectsCoverage = !!(coverageReportsResponse as any).data?.hasCoverageOverview;
+        const prHasCoverageData =
+          prData.coverage?.diffCoverage?.value !== undefined ||
+          prData.coverage?.deltaCoverage !== undefined;
+
         if (format === "json") {
-          printJson({
+          printJson(pickDeep({
             pullRequest: prData,
             newIssues: newIssues.data,
             potentialIssues: potentialIssues.data,
             files: filesData.data || [],
-          });
+          }, [
+            // About
+            "pullRequest.pullRequest.repository",
+            "pullRequest.pullRequest.number",
+            "pullRequest.pullRequest.title",
+            "pullRequest.pullRequest.status",
+            "pullRequest.pullRequest.owner.name",
+            "pullRequest.pullRequest.originBranch",
+            "pullRequest.pullRequest.targetBranch",
+            "pullRequest.pullRequest.updated",
+            "pullRequest.pullRequest.headCommitSha",
+            // Analysis
+            "pullRequest.isAnalysing",
+            "pullRequest.isUpToStandards",
+            "pullRequest.newIssues",
+            "pullRequest.fixedIssues",
+            "pullRequest.coverage",
+            "pullRequest.quality",
+            "pullRequest.deltaComplexity",
+            "pullRequest.deltaClonesCount",
+            // Issues
+            "newIssues",
+            "potentialIssues",
+            // Files
+            "files",
+          ]));
           return;
         }
 
-        printAbout(prData, provider, organization);
+        printAbout(prData, provider, organization, prHeadCommit, prExpectsCoverage, prHasCoverageData);
         printAnalysis(prData);
 
         // Merge new issues and potential issues into a single list

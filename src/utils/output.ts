@@ -11,6 +11,7 @@ import {
   format,
 } from "date-fns";
 import { PaginationInfo } from "../api/client/models/PaginationInfo";
+import { get, set } from "lodash";
 
 export type OutputFormat = "table" | "json";
 
@@ -100,4 +101,20 @@ export function formatFriendlyDate(dateStr: string): string {
   if (isYesterday(date)) return "Yesterday";
 
   return format(date, "yyyy-MM-dd");
+}
+
+/**
+ * Pick deep properties from an object.
+ * @param obj - The object to pick from
+ * @param paths - The paths to pick from the object
+ * @returns The filtered object
+ */
+export function pickDeep(obj: any, paths: string[]): any {
+  return paths.reduce((acc, path) => {
+    const value = get(obj, path);
+    if (value !== undefined) {
+      set(acc, path, value);
+    }
+    return acc;
+  }, {});
 }

@@ -3,7 +3,7 @@ import ora from "ora";
 import ansis from "ansis";
 import { checkApiToken } from "../utils/auth";
 import { handleError } from "../utils/error";
-import { createTable, getOutputFormat, printJson } from "../utils/output";
+import { createTable, getOutputFormat, pickDeep, printJson } from "../utils/output";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 import { AnalysisTool } from "../api/client/models/AnalysisTool";
 
@@ -76,7 +76,15 @@ Examples:
         const tools = response.data;
 
         if (format === "json") {
-          printJson(tools);
+          printJson(tools.map((tool: any) => pickDeep(tool, [
+            "name",
+            "uuid",
+            "isClientSide",
+            "settings.isEnabled",
+            "settings.hasConfigurationFile",
+            "settings.usesConfigurationFile",
+            "settings.enabledBy",
+          ])));
           return;
         }
 

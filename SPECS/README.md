@@ -6,7 +6,7 @@ This is the single source of truth for all project tasks and specs.
 
 ## Pending Tasks
 
-_No pending tasks._
+_No pending tasks._ All commands implemented.
 
 ## Command Inventory
 
@@ -24,6 +24,9 @@ _No pending tasks._
 | `tool` | `tl` | ✅ Done | [tools-and-patterns.md](commands/tools-and-patterns.md) |
 | `patterns` | `pats` | ✅ Done | [tools-and-patterns.md](commands/tools-and-patterns.md) |
 | `pattern` | `pat` | ✅ Done | [tools-and-patterns.md](commands/tools-and-patterns.md) |
+| `analysis` | N/A | ✅ Done | [analysis.md](commands/analysis.md) |
+| `json-output` | N/A | ✅ Done | [json-output.md](commands/json-output.md) |
+
 
 ## Other Specs
 
@@ -56,3 +59,5 @@ _No pending tasks._
 | 2026-02-25 | `repository` actions: `--add`, `--remove`, `--follow`, `--unfollow` (4 new tests, 112 total) |
 | 2026-02-25 | `tools`, `tool`, `patterns`, `pattern` commands + tests (35 new tests, 147 total); `findToolByName` helper added to `utils/formatting.ts` |
 | 2026-03-02 | `issue --ignore`, `pull-request --ignore-issue` / `--ignore-all-false-positives`, `finding --ignore` + tests (17 new tests, 164 total); all use `-R/--ignore-reason` and `-m/--ignore-comment` options |
+| 2026-03-05 | Analysis status in `repository` and `pull-request` About sections using `formatAnalysisStatus()`; `--reanalyze` option for both commands (13 new tests, 185 total) |
+| 2026-03-05 | JSON output filtering with `pickDeep` across all commands: `info`, `repositories`, `repository`, `pull-request`, `issues`, `issue`, `findings`, `finding`, `tools`, `patterns`; documented pattern in `src/commands/CLAUDE.md` |

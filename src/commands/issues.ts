@@ -6,6 +6,7 @@ import { handleError } from "../utils/error";
 import {
   createTable,
   getOutputFormat,
+  pickDeep,
   printJson,
   printPaginationWarning,
 } from "../utils/output";
@@ -233,7 +234,14 @@ Examples:
           const counts = overviewResponse.data.counts;
 
           if (format === "json") {
-            printJson({ overview: counts });
+            printJson(pickDeep({ overview: counts }, [
+              "overview.categories",
+              "overview.levels",
+              "overview.languages",
+              "overview.tags",
+              "overview.patterns",
+              "overview.authors",
+            ]));
             return;
           }
 
@@ -260,7 +268,19 @@ Examples:
           const total = issuesResponse.pagination?.total ?? issues.length;
 
           if (format === "json") {
-            printJson({ issues });
+            printJson({ issues: issues.map((issue: any) => pickDeep(issue, [
+              "patternInfo.severityLevel",
+              "patternInfo.category",
+              "patternInfo.subCategory",
+              "message",
+              "filePath",
+              "lineNumber",
+              "lineText",
+              "resultDataId",
+              "falsePositiveProbability",
+              "falsePositiveThreshold",
+              "falsePositiveReason",
+            ])) });
             return;
           }
 

@@ -51,12 +51,12 @@ codacy <command> --help   # Detailed usage for any command
 |---|---|
 | `info` | Show authenticated user info and their organizations |
 | `repositories <provider> <org>` | List repositories for an organization |
-| `repository <provider> <org> <repo>` | Show metrics for a repository, or add/remove/follow/unfollow it |
+| `repository <provider> <org> <repo>` | Show metrics for a repository, or add/remove/follow/unfollow/reanalyze it |
 | `issues <provider> <org> <repo>` | Search issues in a repository with filters |
 | `issue <provider> <org> <repo> <id>` | Show details for a single issue, or ignore/unignore it |
 | `findings <provider> <org> [repo]` | Show security findings for a repository or organization |
 | `finding <provider> <org> <id>` | Show details for a single security finding, or ignore/unignore it |
-| `pull-request <provider> <org> <repo> <pr>` | Show PR analysis, issues, diff coverage, and changed files |
+| `pull-request <provider> <org> <repo> <pr>` | Show PR analysis, issues, diff coverage, and changed files; or reanalyze it |
 | `tools <provider> <org> <repo>` | List analysis tools configured for a repository |
 | `tool <provider> <org> <repo> <tool>` | Enable, disable, or configure an analysis tool |
 | `patterns <provider> <org> <repo> <tool>` | List patterns for a tool with filters |

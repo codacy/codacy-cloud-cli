@@ -5,6 +5,7 @@ import { checkApiToken } from "../utils/auth";
 import { handleError } from "../utils/error";
 import {
   getOutputFormat,
+  pickDeep,
   printJson,
   printPaginationWarning,
 } from "../utils/output";
@@ -192,7 +193,21 @@ Examples:
         const patterns = response.data;
 
         if (format === "json") {
-          printJson(patterns);
+          printJson(patterns.map((cp: any) => pickDeep(cp, [
+            "enabled",
+            "parameters",
+            "patternDefinition.id",
+            "patternDefinition.title",
+            "patternDefinition.severityLevel",
+            "patternDefinition.category",
+            "patternDefinition.subCategory",
+            "patternDefinition.languages",
+            "patternDefinition.tags",
+            "patternDefinition.enabled",
+            "patternDefinition.description",
+            "patternDefinition.rationale",
+            "patternDefinition.solution",
+          ])));
           return;
         }
 

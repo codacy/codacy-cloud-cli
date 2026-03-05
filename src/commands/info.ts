@@ -6,6 +6,7 @@ import { handleError } from "../utils/error";
 import {
   createTable,
   getOutputFormat,
+  pickDeep,
   printJson,
   printPaginationWarning,
 } from "../utils/output";
@@ -41,7 +42,14 @@ Examples:
         const orgs = orgsResponse.data;
 
         if (format === "json") {
-          printJson({ user, organizations: orgs });
+          printJson(pickDeep({ user, organizations: orgs }, [
+            "user.name",
+            "user.mainEmail",
+            "user.otherEmails",
+            "user.isAdmin",
+            "user.isActive",
+            "organizations",
+          ]));
           return;
         }
 

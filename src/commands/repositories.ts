@@ -7,6 +7,7 @@ import {
   createTable,
   formatFriendlyDate,
   getOutputFormat,
+  pickDeep,
   printJson,
   printPaginationWarning,
 } from "../utils/output";
@@ -88,7 +89,17 @@ Examples:
         const repos = response.data;
 
         if (format === "json") {
-          printJson(repos);
+          printJson(repos.map((repo: any) => pickDeep(repo, [
+            "repository.name",
+            "repository.visibility",
+            "repository.lastUpdated",
+            "gradeLetter",
+            "issuesCount",
+            "complexFilesPercentage",
+            "duplicationPercentage",
+            "coverage.coveragePercentage",
+            "goals",
+          ])));
           return;
         }
 

@@ -12,8 +12,8 @@ Show security findings for a repository or an organization. The repository argum
 codacy findings <provider> <organization> [repository]
 codacy findings gh my-org my-repo
 codacy findings gh my-org
-codacy fins gh my-org --severities High,Critical --statuses OnTrack
-codacy fins gh my-org my-repo --output json
+codacy find gh my-org --severities High,Critical --statuses OnTrack
+codacy find gh my-org my-repo --output json
 ```
 
 ## API Endpoints
@@ -24,12 +24,14 @@ codacy fins gh my-org my-repo --output json
 
 | Option | Short | Description |
 |---|---|---|
-| `--search <term>` | `-s` | Search term to filter findings |
-| `--severities <list>` | `-S` | Comma-separated priority levels |
-| `--statuses <list>` | `-t` | Comma-separated status names |
+| `--search <term>` | `-q` | Search term to filter findings |
+| `--severities <list>` | `-s` | Comma-separated priority levels: Critical, High, Medium, Low |
+| `--statuses <list>` | `-S` | Comma-separated statuses: Overdue, OnTrack, DueSoon, ClosedOnTime, ClosedLate, Ignored |
 | `--categories <list>` | `-c` | Comma-separated security category names |
-| `--scan-types <list>` | `-T` | Comma-separated scan types |
+| `--scan-types <list>` | `-T` | Comma-separated scan types: SAST, Secrets, SCA, CICD, IaC, DAST, PenTesting, License, CSPM |
 | `--dast-targets <list>` | `-d` | Comma-separated DAST target URLs |
+
+Default status filter: `Overdue,OnTrack,DueSoon`.
 
 ## Output
 
@@ -40,13 +42,14 @@ Card-style format:
 
 {Priority colored} | {SecurityCategory} {ScanType} | {Optional: Likelihood} {Optional: EffortToFix} | {Optional: Repository}  {id dimmed}
 {Finding title}
+{Optional: affectedTargets}
 
-{Status} {DueAt} | {Optional: CVE or CWE} | {Optional: AffectedVersion → FixedVersion} | {Optional: Application} | {Optional: AffectedTargets}
+{Status} {DueAt} | {Optional: CVE or CWE} | {Optional: AffectedVersion → FixedVersion} | {Optional: Application}
 
 ────────────────────────────────────────
 ```
 
-The `id` (UUID) is shown in dim gray at the end of line 1 for use with the `finding` command.
+The `id` (UUID) is shown in dim gray at the end of line 1 — use it with the `finding` command to see full details.
 
 Priority colors: Critical=red, High=orange, Medium=yellow, Low=blue.
 

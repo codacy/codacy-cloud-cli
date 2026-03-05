@@ -273,6 +273,24 @@ describe("pull-request command", () => {
     vi.mocked(RepositoryService.getPullRequestDiff).mockResolvedValue({
       diff: "",
     } as any);
+    // Default mocks for analysis status
+    vi.mocked(AnalysisService.getPullRequestCommits).mockResolvedValue({
+      data: [{
+        commit: {
+          sha: "abc1234567890",
+          id: 1,
+          commitTimestamp: "2025-06-14T10:00:00Z",
+          authorName: "Test",
+          authorEmail: "test@test.com",
+          message: "fix things",
+          startedAnalysis: "2025-06-14T09:55:00Z",
+          endedAnalysis: "2025-06-14T10:00:00Z",
+        },
+      }],
+    } as any);
+    vi.mocked(RepositoryService.listCoverageReports).mockResolvedValue({
+      data: { hasCoverageOverview: false },
+    } as any);
   });
 
   it("should fetch and display PR details in table format", async () => {
@@ -1470,5 +1488,81 @@ describe("pull-request command", () => {
 
       mockExit.mockRestore();
     });
+  });
+
+  // ─── Reanalyze ──────────────────────────────────────────────────────────
+
+  describe("--reanalyze", () => {
+    it("should request reanalysis of the PR HEAD commit", async () => {
+      vi.mocked(AnalysisService.getRepositoryPullRequest).mockResolvedValue({
+        ...mockPrData,
+        pullRequest: { ...mockPrData.pullRequest, headCommitSha: "prhead123" },
+      } as any);
+      vi.mocked(RepositoryService.reanalyzeCommitById).mockResolvedValue(undefined as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "pull-request", "gh", "test-org", "test-repo", "42", "--reanalyze",
+      ]);
+
+      expect(RepositoryService.reanalyzeCommitById).toHaveBeenCalledWith(
+        "gh", "test-org", "test-repo", { commitUuid: "prhead123" },
+      );
+    });
+
+    it("should show success message on reanalyze", async () => {
+      vi.mocked(AnalysisService.getRepositoryPullRequest).mockResolvedValue(
+        mockPrData as any,
+      );
+      vi.mocked(RepositoryService.reanalyzeCommitById).mockResolvedValue(undefined as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "pull-request", "gh", "test-org", "test-repo", "42", "--reanalyze",
+      ]);
+
+      expect(RepositoryService.reanalyzeCommitById).toHaveBeenCalled();
+    });
+  });
+
+  // ─── Analysis status in About ───────────────────────────────────────────
+
+  it("should show analysis status in About section", async () => {
+    vi.mocked(AnalysisService.getRepositoryPullRequest).mockResolvedValue(
+      mockPrData as any,
+    );
+    vi.mocked(AnalysisService.listPullRequestIssues)
+      .mockResolvedValueOnce({ data: [], pagination: {} } as any)
+      .mockResolvedValueOnce({ data: [], pagination: {} } as any);
+    vi.mocked(AnalysisService.listPullRequestFiles).mockResolvedValue(
+      { data: [], pagination: {} } as any,
+    );
+    vi.mocked(AnalysisService.getPullRequestCommits).mockResolvedValue({
+      data: [{
+        commit: {
+          sha: "abc1234567890",
+          id: 1,
+          commitTimestamp: "2025-06-14T10:00:00Z",
+          authorName: "Test",
+          authorEmail: "test@test.com",
+          message: "fix things",
+          startedAnalysis: "2025-06-14T09:55:00Z",
+          endedAnalysis: "2025-06-14T10:00:00Z",
+        },
+      }],
+    } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "pull-request", "gh", "test-org", "test-repo", "42",
+    ]);
+
+    const allOutput = (console.log as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => c[0])
+      .join("\n");
+    expect(allOutput).toContain("Finished");
+    expect(allOutput).toContain("abc1234");
+    // Should NOT contain old "Head Commit" label
+    expect(allOutput).not.toContain("Head Commit");
   });
 });

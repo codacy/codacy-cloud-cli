@@ -7,6 +7,7 @@ import {
   createTable,
   formatFriendlyDate,
   getOutputFormat,
+  pickDeep,
   printJson,
   printPaginationWarning,
 } from "../utils/output";
@@ -21,14 +22,21 @@ import {
   formatDelta,
   formatPrCoverage,
   formatPrIssues,
+  formatAnalysisStatus,
 } from "../utils/formatting";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 import { RepositoryService } from "../api/client/services/RepositoryService";
 import { RepositoryWithAnalysis } from "../api/client/models/RepositoryWithAnalysis";
 import { PullRequestWithAnalysis } from "../api/client/models/PullRequestWithAnalysis";
+import { Commit } from "../api/client/models/Commit";
 import { Count } from "../api/client/models/Count";
 
-function printAbout(data: RepositoryWithAnalysis): void {
+function printAbout(
+  data: RepositoryWithAnalysis,
+  headCommit: Commit | null,
+  expectsCoverage: boolean,
+  hasCoverageData: boolean,
+): void {
   printSection("About");
   const repo = data.repository;
   const table = createTable();
@@ -44,16 +52,21 @@ function printAbout(data: RepositoryWithAnalysis): void {
         : "N/A",
     },
   );
-  if (data.lastAnalysedCommit) {
-    const commit = data.lastAnalysedCommit;
-    const time = commit.endedAnalysis
-      ? formatFriendlyDate(commit.endedAnalysis)
-      : "N/A";
+
+  // Use head commit for analysis status; fall back to lastAnalysedCommit
+  const commit = headCommit ?? data.lastAnalysedCommit;
+  if (commit) {
     table.push({
-      "Last Analysis": `${time} (${commit.sha.substring(0, 7)})`,
+      Analysis: formatAnalysisStatus({
+        commitSha: commit.sha,
+        startedAnalysis: commit.startedAnalysis,
+        endedAnalysis: commit.endedAnalysis,
+        expectsCoverage,
+        hasCoverageData,
+      }),
     });
   } else {
-    table.push({ "Last Analysis": ansis.dim("Never") });
+    table.push({ Analysis: ansis.dim("Never") });
   }
   console.log(table.toString());
 }
@@ -206,6 +219,7 @@ export function registerRepositoryCommand(program: Command) {
     .option("-r, --remove", "remove this repository from Codacy")
     .option("-f, --follow", "follow this repository on Codacy")
     .option("-u, --unfollow", "unfollow this repository on Codacy")
+    .option("-R, --reanalyze", "request reanalysis of the HEAD commit")
     .addHelpText(
       "after",
       `
@@ -215,7 +229,8 @@ Examples:
   $ codacy-cloud-cli repository gh my-org my-repo --add
   $ codacy-cloud-cli repository gh my-org my-repo --remove
   $ codacy-cloud-cli repository gh my-org my-repo --follow
-  $ codacy-cloud-cli repository gh my-org my-repo --unfollow`,
+  $ codacy-cloud-cli repository gh my-org my-repo --unfollow
+  $ codacy-cloud-cli repository gh my-org my-repo --reanalyze`,
     )
     .action(async function (
       this: Command,
@@ -289,11 +304,45 @@ Examples:
           return;
         }
 
+        // ── Action: reanalyze ────────────────────────────────────────────
+        if (opts.reanalyze) {
+          const spinner = ora("Requesting reanalysis...").start();
+          try {
+            const commitsResponse = await AnalysisService.listRepositoryCommits(
+              provider,
+              organization,
+              repository,
+              undefined,
+              undefined,
+              1,
+            );
+            const headCommit = commitsResponse.data[0];
+            if (!headCommit) {
+              spinner.fail("No commits found in this repository.");
+              return;
+            }
+            await RepositoryService.reanalyzeCommitById(
+              provider,
+              organization,
+              repository,
+              { commitUuid: headCommit.commit.sha },
+            );
+            spinner.succeed(
+              "Reanalysis requested successfully, new results will be available in a few minutes.",
+            );
+          } catch (reanalyzeErr) {
+            spinner.fail(
+              `Failed to request reanalysis: ${reanalyzeErr instanceof Error ? reanalyzeErr.message : reanalyzeErr}`,
+            );
+          }
+          return;
+        }
+
         // ── Default: dashboard view ──────────────────────────────────────
         const format = getOutputFormat(this);
         const spinner = ora("Fetching repository details...").start();
 
-        const [repoResponse, prsResponse, issuesResponse] = await Promise.all([
+        const [repoResponse, prsResponse, issuesResponse, commitsResponse, coverageReportsResponse] = await Promise.all([
           AnalysisService.getRepositoryWithAnalysis(
             provider,
             organization,
@@ -305,6 +354,20 @@ Examples:
             repository,
           ),
           AnalysisService.issuesOverview(provider, organization, repository),
+          AnalysisService.listRepositoryCommits(
+            provider,
+            organization,
+            repository,
+            undefined,
+            undefined,
+            1,
+          ).catch(() => ({ data: [] })),
+          RepositoryService.listCoverageReports(
+            provider,
+            organization,
+            repository,
+            1,
+          ).catch(() => ({ data: { hasCoverageOverview: false } })),
         ]);
 
         spinner.stop();
@@ -312,17 +375,47 @@ Examples:
         const data = repoResponse.data;
         const pullRequests = prsResponse.data;
         const issuesCounts = issuesResponse.data.counts;
+        const headCommit = (commitsResponse as any).data[0]?.commit ?? null;
+        const expectsCoverage = !!(coverageReportsResponse as any).data?.hasCoverageOverview;
+        const hasCoverageData = data.coverage?.coveragePercentage !== undefined;
 
         if (format === "json") {
-          printJson({
+          printJson(pickDeep({
             repository: data,
             pullRequests,
             issuesOverview: issuesCounts,
-          });
+          }, [
+            // About
+            "repository.repository.provider",
+            "repository.repository.owner",
+            "repository.repository.name",
+            "repository.repository.visibility",
+            "repository.repository.defaultBranch.name",
+            "repository.repository.lastUpdated",
+            "repository.lastAnalysedCommit.sha",
+            "repository.lastAnalysedCommit.startedAnalysis",
+            "repository.lastAnalysedCommit.endedAnalysis",
+            // Setup
+            "repository.repository.languages",
+            "repository.repository.standards",
+            "repository.repository.gatePolicyName",
+            "repository.repository.problems",
+            // Metrics
+            "repository.issuesCount",
+            "repository.loc",
+            "repository.coverage.coveragePercentage",
+            "repository.complexFilesPercentage",
+            "repository.duplicationPercentage",
+            "repository.goals",
+            // Pull Requests
+            "pullRequests",
+            // Issues Overview
+            "issuesOverview",
+          ]));
           return;
         }
 
-        printAbout(data);
+        printAbout(data, headCommit, expectsCoverage, hasCoverageData);
         printSetup(data);
         printMetrics(data);
         printPullRequests(pullRequests);

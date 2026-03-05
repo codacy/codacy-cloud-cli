@@ -1,7 +1,6 @@
 # `pull-request` Command Spec
 
-**Status:**
-✅ Done (2026-02-18); `--issue` option added 2026-02-23; `--diff` + Diff Coverage Summary added 2026-02-25
+**Status:** ✅ Done (2026-02-18); `--issue` added 2026-02-23; `--diff` + Diff Coverage Summary added 2026-02-25; ignore/unignore options added 2026-03-02; analysis status + `--reanalyze` added 2026-03-05
 
 ## Purpose
 
@@ -14,6 +13,7 @@ codacy pull-request <provider> <organization> <repository> <prNumber>
 codacy pr gh my-org my-repo 42
 codacy pr gh my-org my-repo 42 --issue 12345
 codacy pr gh my-org my-repo 42 --output json
+codacy pr gh my-org my-repo 42 --reanalyze
 ```
 
 ## Options
@@ -22,14 +22,22 @@ codacy pr gh my-org my-repo 42 --output json
 |---|---|---|
 | `--issue <issueId>` | `-i` | Show full detail for a single issue (by `resultDataId`) |
 | `--diff` | `-d` | Show git diff annotated with coverage hits/misses and issues |
+| `--ignore-issue <issueId>` | `-I` | Ignore a specific issue in this PR |
+| `--ignore-all-false-positives` | `-F` | Ignore all potential false positive issues |
+| `--ignore-reason <reason>` | `-R` | Reason: `AcceptedUse` (default) \| `FalsePositive` \| `NotExploitable` \| `TestCode` \| `ExternalCode` |
+| `--ignore-comment <comment>` | `-m` | Optional comment for ignore actions |
+| `--unignore-issue <issueId>` | `-U` | Unignore a specific issue in this PR |
+| `--reanalyze` | `-A` | Request reanalysis of the HEAD commit |
 
-## API Endpoints (parallel)
+## API Endpoints (default mode, parallel)
 
-- [`getRepositoryPullRequest`](https://api.codacy.com/api/api-docs#getrepositorypullrequest) — `AnalysisService.getRepositoryPullRequest(provider, org, repo, prNumber)`
+- [`getRepositoryPullRequest`](https://api.codacy.com/api/api-docs#getrepositorypullrequest) — PR metadata + analysis summary
 - [`listPullRequestIssues`](https://api.codacy.com/api/api-docs#listpullrequestissues) (status=new, onlyPotential=false) — new confirmed issues
 - [`listPullRequestIssues`](https://api.codacy.com/api/api-docs#listpullrequestissues) (status=new, onlyPotential=true) — new potential issues
 - [`listPullRequestFiles`](https://api.codacy.com/api/api-docs#listpullrequestfiles) — files with metric deltas
 - [`getRepositoryPullRequestFilesCoverage`](https://api.codacy.com/api/api-docs#getrepositorypullrequestfilescoverage) — files coverage
+- [`getPullRequestCommits`](https://api.codacy.com/api/api-docs#getpullrequestcommits) with `limit=1` — head commit timing for analysis status
+- [`listCoverageReports`](https://api.codacy.com/api/api-docs#listcoveragereports) with `limit=1` — `hasCoverageOverview` flag
 
 ## `--issue` mode
 
@@ -43,87 +51,49 @@ When `--issue <issueId>` is provided:
 
 When `--diff` is provided, print the git diff annotated with coverage hits/misses and issues.
 
-fetch the following in parallel:
-- [`getPullRequestDiff`](https://api.codacy.com/api/api-docs#getpullrequestdiff) - PR's git diff, pass HEAD and target commits - IGNORE THE FACT IT SAYS DEPRECATED, USE IT ANYWAY
-- [`getRepositoryPullRequestFilesCoverage`](https://api.codacy.com/api/api-docs#getrepositorypullrequestfilescoverage) - diff coverage by file, with each line hits counted
-- [`listPullRequestIssues`](https://api.codacy.com/api/api-docs#listpullrequestissues) (status=new, onlyPotential=false) — new confirmed issues
-- [`listPullRequestIssues`](https://api.codacy.com/api/api-docs#listpullrequestissues) (status=new, onlyPotential=true) — new potential issues
+Fetches in parallel:
+- [`getPullRequestDiff`](https://api.codacy.com/api/api-docs#getpullrequestdiff) — PR's git diff
+- [`getRepositoryPullRequestFilesCoverage`](https://api.codacy.com/api/api-docs#getrepositorypullrequestfilescoverage) — diff coverage by file
+- [`listPullRequestIssues`](https://api.codacy.com/api/api-docs#listpullrequestissues) (confirmed + potential)
 
-Use the `parseDiff` function from `utils/diff.ts` to parse the git diff into an object.
+Only prints blocks containing lines with coverage hits/misses or issues. Uses `parseDiff` from `utils/diff.ts`.
 
-When printing the diff, do not print the entire diff, only blocks containing lines that have coverage hits or misses, or issues.
-
-Example output of the diff:
+Example output:
 ```
 -------------------------------------------------------------------------------
 path/to/file.ts
-@@ -29,54 +29,17 @@ class DastAnalysisServiceImpl(
+@@ -29,54 +29,17 @@
 ...
-     45 |     x = y +10;
-     46 |     
-     48 -     return (y + 10);
 ✓    49 +     return { x }; // covered
-     50 | 
-     51 | 
+✘    50 +     return { y }; // not covered
+┃    51 +     return { z };
+┃     ↳  Critical | Security Cryptography #123456
+┃        Object property should be a constant.
 ...
 -------------------------------------------------------------------------------
-path/to/another-file.ts
-@@ -29,54 +29,17 @@ class AnotherClass(
-...
-     45 |     x = y +10;
-     46 |     
-     48 -     return (y + 10);
-✘    49 +     return { x }; // not covered
-     50 | 
-     51 | 
-...
--------------------------------------------------------------------------------
-path/to/file-with-issues.ts
-@@ -29,54 +29,17 @@ class ClassWithIssues(
-...
-     45 |     x = y +10;
-     46 |     
-     48 -     return (y + 10);
-┃    49 +     return { x }; 
-┃     ↳  Critical | Security Cryptography | Potential false positive #123456
-┃        Object property should be a constant.
-     50 | 
-     51 | 
-...
-@@ -29,54 +29,17 @@ class MultipleThings(
-...
-     45 |     x = y +10;
-     46 |     
-     48 -     return (y + 10);
-✘    49 +     return { x }; 
-┃     ↳  Critical | Security Cryptography | Potential false positive #123456
-┃        Object property should be a constant.
-     50 | 
-     51 | 
-...
 ```
 
-Styling rules for the diff:
-- unchanged lines should be gray
-- removed lines should be dark gray
-- added lines should be white
-- covered line number and pipe should be green
-- uncovered line number and pipe should be red
-- issue left line should match the color of the severity
-- when a line has both a coverage hit/miss and an issue, for code line itself show the coverage hit/miss symbol (avoid the left line character that would otherwise be shown because of the issue)
+Styling: unchanged=gray, removed=dark gray, added=white; covered line number/pipe=green; uncovered=red; issue pipe=severity color. When a line has both coverage and an issue, coverage symbol takes priority.
 
-
-## Output Sections
+## Output Sections (default mode)
 
 ### About (key-value table)
 
-Provider/org/repo, PR number + title, status, author, branches (origin → target), updated, head commit SHA.
+| Field | Source |
+|---|---|
+| Repository | `provider / org / repo` |
+| Pull Request | `#number — title` |
+| Status | `pullRequest.status` |
+| Author | `pullRequest.owner.name` |
+| Branches | `originBranch → targetBranch` |
+| Updated | `pullRequest.updated` (friendly date) |
+| Analysis | `formatAnalysisStatus()` — see [analysis.md](analysis.md) |
 
 ### Analysis (key-value table)
 
 - **Analyzing**: Yes/No
 - **Up to Standards**: green ✓ / red ✗ (from `quality.isUpToStandards` + `coverage.isUpToStandards`)
-- **Issues**: `+new / -fixed` with gate coloring; inline reason if failing or pending ("Fails <= 2 warning issues" / "To check >= 50% coverage")
+- **Issues**: `+new / -fixed` with gate coloring; inline reason if failing or pending
 - **Coverage**, **Complexity**, **Duplication**: deltas with gate coloring + inline reasons
 
 Gate reasons come from `quality.resultReasons` and `coverage.resultReasons`.
@@ -132,38 +102,12 @@ Gate reasons come from `quality.resultReasons` and `coverage.resultReasons`.
 
 Merged list of confirmed + potential issues, sorted by severity (Error > High > Warning > Info).
 
-```
-────────────────────────────────────────
-
-{Severity colored} | {Category} {SubCategory?} | {Optional: POTENTIAL}
-{Tool}: {Pattern title}
-{Issue message}
-
-{FilePath}:{LineNumber}   ID: {resultDataId}
-{LineText}
-{Optional: Potential false positive warning}
-
-────────────────────────────────────────
-```
-
 ### Diff Coverage Summary
 
-If `getRepositoryPullRequestFilesCoverage` returns data, print a summary of the diff coverage by file under the title "Diff Coverage Summary".
-
+If coverage data is available, a per-file summary showing coverage % and uncovered line ranges:
 ```
-{File path} | {Coverage diff%} | Uncovered lines: {uncoveredLines}
+src/index.ts | 85.0% | Uncovered lines: 23,32,78-90
 ```
-
-e.g. 
-
-```
-src/index.ts | 85.0% | Uncovered lines: 23,32,78-90,100-105
-```
-
-- The metric Diff Coverage is a percentage for the covered lines in the diff.
-- Covered lines have `hits` > 0 in the response.
-- Lines with `hits` = 0 are coverable but uncovered by tests.
-
 
 ### Files List (columnar table)
 
@@ -171,4 +115,4 @@ Only files with any metric delta change. Columns: file path, issues (+new/-fixed
 
 ## Tests
 
-File: `src/commands/pull-request.test.ts` — 15 tests (11 original + 4 for `--issue`).
+File: `src/commands/pull-request.test.ts` — 27 tests.

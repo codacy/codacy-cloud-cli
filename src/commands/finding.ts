@@ -3,7 +3,7 @@ import ora from "ora";
 import ansis from "ansis";
 import { checkApiToken } from "../utils/auth";
 import { handleError } from "../utils/error";
-import { getOutputFormat, printJson } from "../utils/output";
+import { getOutputFormat, pickDeep, printJson } from "../utils/output";
 import {
   colorPriority,
   colorStatus,
@@ -231,7 +231,54 @@ Examples:
         spinner.stop();
 
         if (format === "json") {
-          printJson({ finding: item, issue: qualityIssue, pattern, lines: fileLines, cve: cveData });
+          printJson(pickDeep({ finding: item, issue: qualityIssue, pattern, lines: fileLines, cve: cveData }, [
+            // Finding
+            "finding.id",
+            "finding.title",
+            "finding.priority",
+            "finding.securityCategory",
+            "finding.scanType",
+            "finding.likelihood",
+            "finding.effortToFix",
+            "finding.repository",
+            "finding.status",
+            "finding.dueAt",
+            "finding.cve",
+            "finding.cwe",
+            "finding.affectedVersion",
+            "finding.fixedVersion",
+            "finding.application",
+            "finding.affectedTargets",
+            "finding.ignored",
+            "finding.summary",
+            "finding.additionalInfo",
+            "finding.remediation",
+            "finding.itemSource",
+            "finding.itemSourceId",
+            // Issue (Codacy source)
+            "issue.patternInfo.severityLevel",
+            "issue.patternInfo.category",
+            "issue.patternInfo.subCategory",
+            "issue.patternInfo.id",
+            "issue.message",
+            "issue.filePath",
+            "issue.lineNumber",
+            "issue.lineText",
+            "issue.suggestion",
+            "issue.resultDataId",
+            "issue.toolInfo.name",
+            // Pattern
+            "pattern.id",
+            "pattern.title",
+            "pattern.description",
+            "pattern.rationale",
+            "pattern.solution",
+            "pattern.tags",
+            // Code lines
+            "lines",
+            // CVE
+            "cve",
+          ]));
           return;
         }
 

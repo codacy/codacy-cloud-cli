@@ -1,7 +1,7 @@
 import ansis from "ansis";
 import numeral from "numeral";
 import pluralize from "pluralize";
-import { format as dateFnsFormat, parseISO, isValid } from "date-fns";
+import { format as dateFnsFormat, parseISO, isValid, differenceInHours } from "date-fns";
 import { PullRequestWithAnalysis } from "../api/client/models/PullRequestWithAnalysis";
 import { AnalysisResultReason } from "../api/client/models/AnalysisResultReason";
 import { CommitIssue } from "../api/client/models/CommitIssue";
@@ -10,6 +10,7 @@ import { Pattern } from "../api/client/models/Pattern";
 import { CodeBlockLine } from "../api/client/models/CodeBlockLine";
 import { CveRecord } from "./cve";
 import { AnalysisTool } from "../api/client/models/AnalysisTool";
+import { formatFriendlyDate } from "./output";
 
 export const SEVERITY_DISPLAY: Record<string, string> = {
   Error: "Critical",
@@ -533,4 +534,64 @@ export function findToolByName(
     t.name.toLowerCase().startsWith(normalized),
   );
   return anyPrefixMatches.sort((a, b) => a.name.length - b.name.length)[0];
+}
+
+const COVERAGE_REPORTS_WAIT_HOURS = 3;
+
+/**
+ * Format the analysis status string for a commit (used by repository and pull-request commands).
+ *
+ * Logic:
+ * - Being analyzed = startedAnalysis exists and (no endedAnalysis OR startedAnalysis > endedAnalysis)
+ * - If being analyzed + has previous endedAnalysis: "Finished {date} ({sha}) — Reanalysis in progress..."
+ * - If being analyzed + no previous finish: "In progress... ({sha})"
+ * - If finished + expects coverage but no data:
+ *   - ≤3h: "Finished {date} ({sha}) — Waiting for coverage reports..."
+ *   - >3h: "Finished {date} ({sha}) — Missing coverage reports"
+ * - If finished normally: "Finished {date} ({sha})"
+ * - No analysis data: dim "Never"
+ */
+export function formatAnalysisStatus(opts: {
+  commitSha: string;
+  startedAnalysis?: string;
+  endedAnalysis?: string;
+  expectsCoverage: boolean;
+  hasCoverageData: boolean;
+}): string {
+  const { commitSha, startedAnalysis, endedAnalysis, expectsCoverage, hasCoverageData } = opts;
+  const shortSha = commitSha.substring(0, 7);
+
+  if (!startedAnalysis && !endedAnalysis) {
+    return ansis.dim("Never");
+  }
+
+  const isBeingAnalyzed =
+    !!startedAnalysis &&
+    (!endedAnalysis || parseISO(startedAnalysis) > parseISO(endedAnalysis));
+
+  if (isBeingAnalyzed) {
+    if (endedAnalysis) {
+      const finishedDate = formatFriendlyDate(endedAnalysis);
+      return `Finished ${finishedDate} (${shortSha}) — ${ansis.blueBright("Reanalysis in progress...")}`;
+    }
+    return `${ansis.blueBright("In progress...")} (${shortSha})`;
+  }
+
+  // Analysis is finished
+  if (endedAnalysis) {
+    const finishedDate = formatFriendlyDate(endedAnalysis);
+    const base = `Finished ${finishedDate} (${shortSha})`;
+
+    if (expectsCoverage && !hasCoverageData) {
+      const hoursSinceFinish = differenceInHours(new Date(), parseISO(endedAnalysis));
+      if (hoursSinceFinish <= COVERAGE_REPORTS_WAIT_HOURS) {
+        return `${base} — ${ansis.blueBright("Waiting for coverage reports...")}`;
+      }
+      return `${base} — ${ansis.yellow("Missing coverage reports")}`;
+    }
+
+    return base;
+  }
+
+  return ansis.dim("Never");
 }

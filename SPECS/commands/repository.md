@@ -1,6 +1,6 @@
 # `repository` Command Spec
 
-**Status:** ✅ Done (2026-02-18); actions (`--add`, `--remove`, `--follow`, `--unfollow`) added 2026-02-25
+**Status:** ✅ Done (2026-02-18); actions (`--add`, `--remove`, `--follow`, `--unfollow`) added 2026-02-25; analysis status + `--reanalyze` added 2026-03-05
 
 ## Purpose
 
@@ -11,6 +11,7 @@ Show details, status, and metrics for a specific repository — a full dashboard
 ```
 codacy repository <provider> <organization> <repository>
 codacy repo gh my-org my-repo --output json
+codacy repo gh my-org my-repo --reanalyze
 ```
 
 ## API Endpoints (parallel)
@@ -18,6 +19,8 @@ codacy repo gh my-org my-repo --output json
 - [`getRepositoryWithAnalysis`](https://api.codacy.com/api/api-docs#getrepositorywithanalysis) — `AnalysisService.getRepositoryWithAnalysis(provider, org, repo)`
 - [`listRepositoryPullRequests`](https://api.codacy.com/api/api-docs#listrepositorypullrequests) — `AnalysisService.listRepositoryPullRequests(provider, org, repo)`
 - [`issuesOverview`](https://api.codacy.com/api/api-docs#issuesoverview) — `AnalysisService.issuesOverview(provider, org, repo)`
+- [`listRepositoryCommits`](https://api.codacy.com/api/api-docs#listrepositorycommits) with `limit=1` — head commit timing for analysis status
+- [`listCoverageReports`](https://api.codacy.com/api/api-docs#listcoveragereports) with `limit=1` — `hasCoverageOverview` flag
 
 ## Output Sections
 
@@ -25,10 +28,11 @@ codacy repo gh my-org my-repo --output json
 
 | Field | Source |
 |---|---|
-| Repository | `provider / org / name (⊙ if public)` |
-| Default Branch | `repo.defaultBranch` |
+| Repository | `provider / org / name` |
+| Visibility | `repo.visibility` |
+| Default Branch | `repo.defaultBranch.name` |
 | Last Updated | `repo.lastUpdated` (friendly date) |
-| Last Analysis | `repo.lastAnalysedAt` time + short SHA |
+| Analysis | `formatAnalysisStatus()` — see [analysis.md](analysis.md) |
 
 ### Setup (key-value table)
 
@@ -36,7 +40,7 @@ codacy repo gh my-org my-repo --output json
 |---|---|
 | Languages | `repo.languages` (comma-separated) |
 | Coding Standards | `repo.standards` (names, comma-separated) |
-| Quality Gate | `repo.qualityGateName` |
+| Quality Gate | `repo.gatePolicyName` |
 | Problems | `repo.problems` (yellow if present, green "None" otherwise) |
 
 ### Metrics (key-value table)
@@ -63,38 +67,32 @@ Shows pagination warning if more PRs exist.
 By category, severity level, and language — sorted descending by count.
 
 ## Actions
-In all cases, return a success message when the action is completed successfully, otherwise return an error message with the error details provided by the API.
 
-### Add repository to Codacy
-- API Endpoint: [`addRepository`](https://api.codacy.com/api/api-docs#addrepository) 
-- Usage:
-```
-codacy repository <provider> <organization> <repository> --add
-```
+In all cases, show a success message on completion or an error message with details on failure.
 
-- Add an additional message explaining that the repository will be available after a few minutes (after first cloning and analysis is completed), depending on the size of the repository.
+### Add repository (`--add`)
 
-### Remove repository from Codacy
-- API Endpoint: [`deleteRepository`](https://api.codacy.com/api/api-docs#deleterepository) 
-- Usage:
-```
-codacy repository <provider> <organization> <repository> --remove
-```
+- API: [`addRepository`](https://api.codacy.com/api/api-docs#addrepository)
+- Shows an additional note that the repository will be available after a few minutes (initial clone + analysis).
 
-### Follow repository
-- API Endpoint: [`followAddedRepository`](https://api.codacy.com/api/api-docs#followaddedrepository) 
-- Usage:
-```
-codacy repository <provider> <organization> <repository> --follow
-```
+### Remove repository (`--remove`)
 
-### Unfollow repository
-- API Endpoint: [`unfollowRepository`](https://api.codacy.com/api/api-docs#unfollowrepository) 
-- Usage:
-```
-codacy repository <provider> <organization> <repository> --unfollow
-```
+- API: [`deleteRepository`](https://api.codacy.com/api/api-docs#deleterepository)
+
+### Follow repository (`--follow`)
+
+- API: [`followAddedRepository`](https://api.codacy.com/api/api-docs#followaddedrepository)
+
+### Unfollow repository (`--unfollow`)
+
+- API: [`unfollowRepository`](https://api.codacy.com/api/api-docs#unfollowrepository)
+
+### Reanalyze (`--reanalyze`)
+
+- Fetches the HEAD commit SHA via `listRepositoryCommits(limit=1)`
+- API: [`reanalyzeCommitById`](https://api.codacy.com/api/api-docs#reanalyzecommitbyid)
+- Shows success/failure message
 
 ## Tests
 
-File: `src/commands/repository.test.ts` — 5 tests.
+File: `src/commands/repository.test.ts` — 16 tests.

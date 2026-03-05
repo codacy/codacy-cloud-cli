@@ -171,3 +171,30 @@ Several helpers are shared between `repository.ts` and `pull-request.ts` via `ut
   - Supports `-R/--ignore-reason` (default: `AcceptedUse`) and `-m/--ignore-comment`
 - **`--ignore-all-false-positives` mode** (`-F`): fetches all potential false positive issues (onlyPotential=true, paginated), ignores them all in parallel with hardcoded reason `FalsePositive`; supports `-m/--ignore-comment`
 - **`--unignore-issue <id>` mode** (`-U`): same lookup as `--ignore-issue`, calls `updateIssueState` with `{ ignored: false }`
+- **`--reanalyze` mode** (`-A`): fetches PR data to get `headCommitSha`, calls `RepositoryService.reanalyzeCommitById`; early return
+- **Analysis status in About**: replaced "Head Commit" with "Analysis" row using `formatAnalysisStatus()` from `utils/formatting.ts`; fetches `getPullRequestCommits(limit=1)` and `listCoverageReports(limit=1)` in parallel with existing calls
+
+## JSON Output Filtering (`pickDeep`)
+
+All commands that output JSON now filter their response using `pickDeep(data, paths)` from `utils/output.ts`. This ensures the JSON output only includes fields that correspond to what's shown in the console table/card output.
+
+**Pattern for new commands:**
+```typescript
+if (format === "json") {
+  printJson(pickDeep(data, [
+    "field.nested.path",
+    "another.field",
+  ]));
+  return;
+}
+```
+
+**For arrays of items**, map each item through `pickDeep`:
+```typescript
+printJson(items.map((item: any) => pickDeep(item, [...])));
+```
+
+**Special rules for JSON output:**
+- Commit SHAs: include the full SHA (not truncated)
+- Dates: include full ISO timestamps (not formatted)
+- IDs: only include IDs already shown in console output
