@@ -13,6 +13,8 @@ import { registerToolsCommand } from "./commands/tools";
 import { registerToolCommand } from "./commands/tool";
 import { registerPatternsCommand } from "./commands/patterns";
 import { registerPatternCommand } from "./commands/pattern";
+import { registerLoginCommand } from "./commands/login";
+import { registerLogoutCommand } from "./commands/logout";
 
 const program = new Command();
 
@@ -40,5 +42,7 @@ registerToolsCommand(program);
 registerToolCommand(program);
 registerPatternsCommand(program);
 registerPatternCommand(program);
+registerLoginCommand(program);
+registerLogoutCommand(program);
 
 program.parse(process.argv);
