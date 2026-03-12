@@ -59,7 +59,7 @@ codacy <command> --help   # Detailed usage for any command
 | `pull-request <provider> <org> <repo> <pr>` | Show PR analysis, issues, diff coverage, and changed files; or reanalyze it |
 | `tools <provider> <org> <repo>` | List analysis tools configured for a repository |
 | `tool <provider> <org> <repo> <tool>` | Enable, disable, or configure an analysis tool |
-| `patterns <provider> <org> <repo> <tool>` | List patterns for a tool with filters |
+| `patterns <provider> <org> <repo> <tool>` | List patterns for a tool, or bulk enable/disable them |
 | `pattern <provider> <org> <repo> <tool> <id>` | Enable, disable, or set parameters for a pattern |
 
 Provider shortcodes: `gh` (GitHub), `gl` (GitLab), `bb` (Bitbucket).

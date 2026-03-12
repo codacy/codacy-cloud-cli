@@ -61,3 +61,4 @@ _No pending tasks._ All commands implemented.
 | 2026-03-02 | `issue --ignore`, `pull-request --ignore-issue` / `--ignore-all-false-positives`, `finding --ignore` + tests (17 new tests, 164 total); all use `-R/--ignore-reason` and `-m/--ignore-comment` options |
 | 2026-03-05 | Analysis status in `repository` and `pull-request` About sections using `formatAnalysisStatus()`; `--reanalyze` option for both commands (13 new tests, 185 total) |
 | 2026-03-05 | JSON output filtering with `pickDeep` across all commands: `info`, `repositories`, `repository`, `pull-request`, `issues`, `issue`, `findings`, `finding`, `tools`, `patterns`; documented pattern in `src/commands/CLAUDE.md` |
+| 2026-03-12 | `patterns --enable-all` / `--disable-all` bulk update with filter support (6 new tests, 196 total) |

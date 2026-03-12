@@ -56,16 +56,25 @@ function normalizeCategory(input: string): string {
 function printPatternCard(cp: ConfiguredPattern): void {
   const p = cp.patternDefinition;
   const separator = ansis.dim("─".repeat(40));
-  const enabledIcon = cp.enabled ? "✅" : ansis.dim("⬛");
+  const enforcedByStandard = cp.enabledBy && cp.enabledBy.length > 0;
+  const enabled = cp.enabled || enforcedByStandard; // enabled should be enough, but there is a bug in the API
+  const enabledIcon = enabled
+    ? enforcedByStandard
+      ? "☑️"
+      : "✅"
+    : ansis.dim("⬛");
   const titleText = p.title ?? p.id;
-  const titleColored = cp.enabled
-    ? ansis.white(titleText)
-    : ansis.dim(titleText);
+  const titleColored = enabled ? ansis.white(titleText) : ansis.dim(titleText);
   const idStr = ansis.dim(`(${p.id})`);
   const recommendedStr = p.enabled ? ` | ${ansis.magenta("Recommended")}` : "";
 
   console.log(separator);
   console.log(`${enabledIcon} ${titleColored} ${idStr}${recommendedStr}`);
+
+  if (enforcedByStandard) {
+    const names = cp.enabledBy.map((s) => s.name).join(", ");
+    console.log(`   ${ansis.dim(`Enforced by: ${names}`)}`);
+  }
 
   // Metadata line: severity | category subcategory | languages | tags
   const meta: string[] = [colorSeverity(p.severityLevel)];
@@ -97,6 +106,117 @@ function printPatternCard(cp: ConfiguredPattern): void {
   }
 }
 
+interface BulkUpdateArgs {
+  provider: string;
+  organization: string;
+  repository: string;
+  toolUuid: string;
+  toolName: string;
+  enabled: boolean;
+  languages?: string;
+  categories?: string;
+  severities?: string;
+  tags?: string;
+  search?: string;
+  recommended?: boolean;
+  spinner: ReturnType<typeof ora>;
+}
+
+async function handleBulkUpdate(args: BulkUpdateArgs): Promise<void> {
+  const verb = args.enabled ? "Enabling" : "Disabling";
+  args.spinner.text = `${verb} matching patterns for ${args.toolName}...`;
+
+  await AnalysisService.updateRepositoryToolPatterns(
+    args.provider,
+    args.organization,
+    args.repository,
+    args.toolUuid,
+    { enabled: args.enabled },
+    args.languages,
+    args.categories,
+    args.severities,
+    args.tags,
+    args.search,
+    args.recommended,
+  );
+
+  const overview = await AnalysisService.toolPatternsOverview(
+    args.provider,
+    args.organization,
+    args.repository,
+    args.toolUuid,
+  );
+  const { totalEnabled, categories: catCounts } = overview.data.counts;
+  const totalPatterns = catCounts.reduce((s, c) => s + c.total, 0);
+  const pastVerb = args.enabled ? "Enabled" : "Disabled";
+  args.spinner.succeed(
+    `${pastVerb} matching ${args.toolName} patterns. ${totalEnabled}/${totalPatterns} patterns now enabled.`,
+  );
+}
+
+function sortPatterns(patterns: ConfiguredPattern[]): ConfiguredPattern[] {
+  return [...patterns].sort((a, b) => {
+    const aSev = SEVERITY_ORDER[a.patternDefinition.severityLevel] ?? 99;
+    const bSev = SEVERITY_ORDER[b.patternDefinition.severityLevel] ?? 99;
+    if (aSev !== bSev) return aSev - bSev;
+
+    const aRec = a.patternDefinition.enabled ? 0 : 1;
+    const bRec = b.patternDefinition.enabled ? 0 : 1;
+    if (aRec !== bRec) return aRec - bRec;
+
+    return (a.patternDefinition.title ?? a.patternDefinition.id).localeCompare(
+      b.patternDefinition.title ?? b.patternDefinition.id,
+    );
+  });
+}
+
+function printPatternCards(patterns: ConfiguredPattern[]): void {
+  const sorted = sortPatterns(patterns);
+  for (const cp of sorted) {
+    printPatternCard(cp);
+  }
+  if (sorted.length > 0) {
+    console.log(ansis.dim("─".repeat(40)));
+  } else {
+    console.log(ansis.dim("No patterns found."));
+  }
+}
+
+const JSON_FIELDS = [
+  "enabled",
+  "parameters",
+  "patternDefinition.id",
+  "patternDefinition.title",
+  "patternDefinition.severityLevel",
+  "patternDefinition.category",
+  "patternDefinition.subCategory",
+  "patternDefinition.languages",
+  "patternDefinition.tags",
+  "patternDefinition.enabled",
+  "patternDefinition.description",
+  "patternDefinition.rationale",
+  "patternDefinition.solution",
+  "enabledBy",
+];
+
+function parseFilters(opts: Record<string, any>) {
+  const severities = opts.severities
+    ? opts.severities
+        .split(",")
+        .map((s: string) => normalizeSeverity(s))
+        .join(",")
+    : undefined;
+
+  const categories = opts.categories
+    ? opts.categories
+        .split(",")
+        .map((c: string) => normalizeCategory(c.trim()))
+        .join(",")
+    : undefined;
+
+  return { severities, categories };
+}
+
 export function registerPatternsCommand(program: Command) {
   program
     .command("patterns")
@@ -120,6 +240,8 @@ export function registerPatternsCommand(program: Command) {
     .option("-e, --enabled", "show only enabled patterns")
     .option("-D, --disabled", "show only disabled patterns")
     .option("-r, --recommended", "show only recommended patterns")
+    .option("-E, --enable-all", "bulk enable matching patterns")
+    .option("-X, --disable-all", "bulk disable matching patterns")
     .addHelpText(
       "after",
       `
@@ -127,7 +249,9 @@ Examples:
   $ codacy-cloud-cli patterns gh my-org my-repo eslint
   $ codacy-cloud-cli patterns gh my-org my-repo eslint --severities Critical,High
   $ codacy-cloud-cli patterns gh my-org my-repo eslint --enabled --categories Security
-  $ codacy-cloud-cli patterns gh my-org my-repo eslint --search "sql injection" --recommended`,
+  $ codacy-cloud-cli patterns gh my-org my-repo eslint --search "sql injection" --recommended
+  $ codacy-cloud-cli patterns gh my-org my-repo eslint --enable-all --categories Security
+  $ codacy-cloud-cli patterns gh my-org my-repo eslint --disable-all --severities Minor`,
     )
     .action(async function (
       this: Command,
@@ -140,6 +264,13 @@ Examples:
         checkApiToken();
         const format = getOutputFormat(this);
         const opts = this.opts();
+
+        if (opts.enableAll && opts.disableAll) {
+          console.error(
+            "Error: --enable-all and --disable-all are mutually exclusive.",
+          );
+          process.exit(1);
+        }
 
         const spinner = ora(`Looking up tool "${toolName}"...`).start();
 
@@ -155,21 +286,28 @@ Examples:
           process.exit(1);
         }
 
+        const { severities, categories } = parseFilters(opts);
+
+        if (opts.enableAll || opts.disableAll) {
+          await handleBulkUpdate({
+            provider,
+            organization,
+            repository,
+            toolUuid: tool.uuid,
+            toolName: tool.name,
+            enabled: Boolean(opts.enableAll),
+            languages: opts.languages,
+            categories,
+            severities,
+            tags: opts.tags,
+            search: opts.search,
+            recommended: opts.recommended ? true : undefined,
+            spinner,
+          });
+          return;
+        }
+
         spinner.text = `Fetching patterns for ${tool.name}...`;
-
-        const severities = opts.severities
-          ? opts.severities
-              .split(",")
-              .map((s: string) => normalizeSeverity(s))
-              .join(",")
-          : undefined;
-
-        const categories = opts.categories
-          ? opts.categories
-              .split(",")
-              .map((c: string) => normalizeCategory(c.trim()))
-              .join(",")
-          : undefined;
 
         let enabledFilter: boolean | undefined;
         if (opts.enabled) enabledFilter = true;
@@ -190,50 +328,12 @@ Examples:
         );
         spinner.stop();
 
-        const patterns = response.data;
-
         if (format === "json") {
-          printJson(patterns.map((cp: any) => pickDeep(cp, [
-            "enabled",
-            "parameters",
-            "patternDefinition.id",
-            "patternDefinition.title",
-            "patternDefinition.severityLevel",
-            "patternDefinition.category",
-            "patternDefinition.subCategory",
-            "patternDefinition.languages",
-            "patternDefinition.tags",
-            "patternDefinition.enabled",
-            "patternDefinition.description",
-            "patternDefinition.rationale",
-            "patternDefinition.solution",
-          ])));
+          printJson(response.data.map((cp: any) => pickDeep(cp, JSON_FIELDS)));
           return;
         }
 
-        // Sort: severity → recommended → title
-        const sorted = [...patterns].sort((a, b) => {
-          const aSev = SEVERITY_ORDER[a.patternDefinition.severityLevel] ?? 99;
-          const bSev = SEVERITY_ORDER[b.patternDefinition.severityLevel] ?? 99;
-          if (aSev !== bSev) return aSev - bSev;
-
-          const aRec = a.patternDefinition.enabled ? 0 : 1;
-          const bRec = b.patternDefinition.enabled ? 0 : 1;
-          if (aRec !== bRec) return aRec - bRec;
-
-          return (
-            a.patternDefinition.title ?? a.patternDefinition.id
-          ).localeCompare(b.patternDefinition.title ?? b.patternDefinition.id);
-        });
-
-        for (const cp of sorted) {
-          printPatternCard(cp);
-        }
-        if (sorted.length > 0) {
-          console.log(ansis.dim("─".repeat(40)));
-        } else {
-          console.log(ansis.dim("No patterns found."));
-        }
+        printPatternCards(response.data);
 
         printPaginationWarning(
           response.pagination,

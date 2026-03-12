@@ -90,7 +90,7 @@ File: `src/commands/tool.test.ts` — 9 tests.
 
 ## Purpose
 
-List patterns for a specific tool in a repository, with optional filters.
+List patterns for a specific tool in a repository, with optional filters. Also supports bulk enabling/disabling matching patterns.
 
 ## Usage
 
@@ -98,6 +98,8 @@ List patterns for a specific tool in a repository, with optional filters.
 codacy patterns <provider> <organization> <repository> <toolName>
 codacy patterns gh my-org my-repo eslint --severities Critical,High --enabled
 codacy patterns gh my-org my-repo eslint --output json
+codacy patterns gh my-org my-repo eslint --enable-all --categories Security
+codacy patterns gh my-org my-repo eslint --disable-all --severities Minor
 ```
 
 ## Options
@@ -109,16 +111,22 @@ codacy patterns gh my-org my-repo eslint --output json
 | `--severities <severities>` | `-s` | Comma-separated severity levels |
 | `--tags <tags>` | `-t` | Comma-separated tag names |
 | `--search <term>` | `-q` | Search term |
-| `--enabled` | `-e` | Show only enabled patterns |
-| `--disabled` | `-D` | Show only disabled patterns |
+| `--enabled` | `-e` | Show only enabled patterns (list mode only) |
+| `--disabled` | `-D` | Show only disabled patterns (list mode only) |
 | `--recommended` | `-r` | Show only recommended patterns |
+| `--enable-all` | `-E` | Bulk enable matching patterns |
+| `--disable-all` | `-X` | Bulk disable matching patterns |
 
 ## API Endpoints
 
 1. [`listRepositoryTools`](https://api.codacy.com/api/api-docs#listrepositorytools) — to resolve tool name to UUID
-2. [`listRepositoryToolPatterns`](https://api.codacy.com/api/api-docs#listrepositorytoolpatterns) — `AnalysisService.listRepositoryToolPatterns(...)`
+2. [`listRepositoryToolPatterns`](https://api.codacy.com/api/api-docs#listrepositorytoolpatterns) — list mode
+3. [`updateRepositoryToolPatterns`](https://api.codacy.com/api/api-docs#updaterepositorytoolpatterns) — bulk update mode (`--enable-all` / `--disable-all`)
+4. [`toolPatternsOverview`](https://api.codacy.com/api/api-docs#toolpatternsoverview) — fetched after bulk update to show summary counts
 
-## Output
+## Modes
+
+### List mode (default)
 
 Card-style format, sorted by severity (Critical > High > Medium > Minor), then recommended (true first), then title alphabetically:
 
@@ -138,9 +146,18 @@ Card-style format, sorted by severity (Critical > High > Medium > Minor), then r
 
 Shows pagination warning if more than 100 results exist.
 
+### Bulk update mode (`--enable-all` / `--disable-all`)
+
+Enables or disables all patterns matching the applied filters (languages, categories, severities, tags, search, recommended). The `--enabled`/`--disabled` filter is not used in bulk update mode since it would be redundant. `--enable-all` and `--disable-all` are mutually exclusive.
+
+After the update, fetches the tool patterns overview and shows a summary:
+```
+✔ Enabled matching ESLint patterns. 120/200 patterns now enabled.
+```
+
 ## Tests
 
-File: `src/commands/patterns.test.ts` — 12 tests.
+File: `src/commands/patterns.test.ts` — 23 tests.
 
 ---
 
