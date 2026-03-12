@@ -11,9 +11,6 @@ import {
   getCredentialsPath,
 } from "./credentials";
 
-const TEST_DIR = path.join(os.tmpdir(), ".codacy-test-" + process.pid);
-const TEST_FILE = path.join(TEST_DIR, "credentials");
-
 vi.mock("node:os", async () => {
   const actual = await vi.importActual<typeof import("node:os")>("node:os");
   return {

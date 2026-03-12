@@ -30,7 +30,12 @@ Get your token at: https://app.codacy.com/account/access-management
         let token: string;
 
         if (options.token) {
-          token = options.token;
+          token = String(options.token).trim();
+
+          if (!token) {
+            console.error(ansis.red("Error: Token cannot be empty."));
+            process.exit(1);
+          }
         } else {
           console.log(ansis.bold("\nCodacy Login\n"));
           console.log("You need an Account API Token to authenticate.");
