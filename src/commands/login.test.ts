@@ -23,11 +23,13 @@ function createProgram(): Command {
 }
 
 const mockUser = {
+  id: 1,
   name: "Test User",
   mainEmail: "test@example.com",
   otherEmails: [],
   isAdmin: false,
   isActive: true,
+  created: "2024-01-01",
 };
 
 describe("login command", () => {
