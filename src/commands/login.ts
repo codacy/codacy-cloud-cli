@@ -1,9 +1,9 @@
 import { Command } from "commander";
 import ansis from "ansis";
 import ora from "ora";
-import { OpenAPI } from "../api/client/core/OpenAPI";
 import { AccountService } from "../api/client/services/AccountService";
 import { handleError } from "../utils/error";
+import { updateApiHeaders } from "../utils/auth";
 import {
   saveCredentials,
   getCredentialsPath,
@@ -33,8 +33,7 @@ Get your token at: https://app.codacy.com/account/access-management
           token = String(options.token).trim();
 
           if (!token) {
-            console.error(ansis.red("Error: Token cannot be empty."));
-            process.exit(1);
+            throw new Error("Token cannot be empty.");
           }
         } else {
           console.log(ansis.bold("\nCodacy Login\n"));
@@ -49,8 +48,7 @@ Get your token at: https://app.codacy.com/account/access-management
           token = await promptForToken("API Token: ");
 
           if (!token.trim()) {
-            console.error(ansis.red("Error: Token cannot be empty."));
-            process.exit(1);
+            throw new Error("Token cannot be empty.");
           }
 
           token = token.trim();
@@ -58,10 +56,7 @@ Get your token at: https://app.codacy.com/account/access-management
 
         const spinner = ora("Validating token...").start();
 
-        OpenAPI.HEADERS = {
-          "api-token": token,
-          "X-Codacy-Origin": "cli-cloud-tool",
-        };
+        updateApiHeaders(token);
 
         let userName: string;
         let userEmail: string;

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as os from "node:os";
+
 import {
   encryptToken,
   decryptToken,
@@ -11,7 +11,11 @@ import {
   getCredentialsPath,
 } from "./credentials";
 
-const mockHomeDir = path.join(os.tmpdir(), `.codacy-home-${process.pid}`);
+const mockHomeDir = vi.hoisted(() => {
+  const os = require("node:os");
+  const path = require("node:path");
+  return path.join(os.tmpdir(), `.codacy-home-${process.pid}`);
+});
 
 vi.mock("node:os", async () => {
   const actual = await vi.importActual<typeof import("node:os")>("node:os");
@@ -111,7 +115,12 @@ describe("credentials", () => {
       fs.mkdirSync(credentialsDir, { recursive: true });
       fs.writeFileSync(
         credentialsFile,
-        JSON.stringify({ salt: "aa", iv: "bb", authTag: "cc", encrypted: "dd" }),
+        JSON.stringify({
+          salt: "aa",
+          iv: "bb",
+          authTag: "cc",
+          encrypted: "dd",
+        }),
         "utf8",
       );
       expect(loadCredentials()).toBeNull();

@@ -4,7 +4,7 @@ import { registerInfoCommand } from "./info";
 import { AccountService } from "../api/client/services/AccountService";
 
 vi.mock("../api/client/services/AccountService");
-// Suppress console output during tests
+vi.mock("../utils/credentials", () => ({ loadCredentials: vi.fn(() => null) }));
 vi.spyOn(console, "log").mockImplementation(() => {});
 
 function createProgram(): Command {

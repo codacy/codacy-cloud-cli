@@ -1,7 +1,7 @@
 import { OpenAPI } from "../api/client/core/OpenAPI";
 import { loadCredentials } from "./credentials";
 
-function updateApiHeaders(token: string): void {
+export function updateApiHeaders(token: string): void {
   OpenAPI.HEADERS = {
     "api-token": token,
     "X-Codacy-Origin": "cli-cloud-tool",

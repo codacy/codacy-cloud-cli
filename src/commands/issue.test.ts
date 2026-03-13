@@ -9,6 +9,7 @@ import { IssueStateBody } from "../api/client/models/IssueStateBody";
 vi.mock("../api/client/services/AnalysisService");
 vi.mock("../api/client/services/ToolsService");
 vi.mock("../api/client/services/FileService");
+vi.mock("../utils/credentials", () => ({ loadCredentials: vi.fn(() => null) }));
 vi.spyOn(console, "log").mockImplementation(() => {});
 vi.spyOn(console, "error").mockImplementation(() => {});
 
