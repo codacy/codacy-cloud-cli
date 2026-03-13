@@ -76,6 +76,11 @@ Get your token at: https://app.codacy.com/account/access-management
               "Invalid API token. Check that it is correct and not expired.",
             );
           }
+          if (typeof apiErr?.status === "number") {
+            throw new Error(
+              `Codacy API returned an error (status ${apiErr.status}). Please try again or check your permissions.`,
+            );
+          }
           throw new Error(
             "Could not reach the Codacy API. Check your network connection.",
           );

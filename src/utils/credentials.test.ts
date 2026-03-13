@@ -11,19 +11,18 @@ import {
   getCredentialsPath,
 } from "./credentials";
 
+const mockHomeDir = path.join(os.tmpdir(), `.codacy-home-${process.pid}`);
+
 vi.mock("node:os", async () => {
   const actual = await vi.importActual<typeof import("node:os")>("node:os");
   return {
     ...actual,
-    homedir: () => os.tmpdir().replace(/\/$/, "") + "/.codacy-home-" + process.pid,
+    homedir: () => mockHomeDir,
   };
 });
 
 describe("credentials", () => {
-  const credentialsDir = path.join(
-    os.tmpdir().replace(/\/$/, "") + "/.codacy-home-" + process.pid,
-    ".codacy",
-  );
+  const credentialsDir = path.join(mockHomeDir, ".codacy");
   const credentialsFile = path.join(credentialsDir, "credentials");
 
   beforeEach(() => {

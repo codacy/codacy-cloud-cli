@@ -91,26 +91,35 @@ export function saveCredentials(token: string): void {
 }
 
 export function loadCredentials(): string | null {
+  if (!fs.existsSync(CREDENTIALS_FILE)) {
+    return null;
+  }
+
+  const payload = fs.readFileSync(CREDENTIALS_FILE, "utf8");
+
   try {
-    if (!fs.existsSync(CREDENTIALS_FILE)) {
-      return null;
-    }
-    const payload = fs.readFileSync(CREDENTIALS_FILE, "utf8");
     return decryptToken(payload);
   } catch {
+    // Treat invalid/corrupted credentials as "no credentials"
     return null;
   }
 }
 
 export function deleteCredentials(): boolean {
+  if (!fs.existsSync(CREDENTIALS_FILE)) {
+    return false;
+  }
+
   try {
-    if (!fs.existsSync(CREDENTIALS_FILE)) {
-      return false;
-    }
     fs.unlinkSync(CREDENTIALS_FILE);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code === "ENOENT") {
+      // File was removed between the existence check and unlink
+      return false;
+    }
+    throw error;
   }
 }
 
@@ -129,24 +138,28 @@ export function promptForToken(prompt: string): Promise<string> {
     let token = "";
 
     const onData = (char: string) => {
-      const c = char.toString();
+      const chunk = char.toString();
 
-      if (c === "\n" || c === "\r") {
-        cleanup();
-        process.stdout.write("\n");
-        resolve(token);
-      } else if (c === "\u0003") {
-        cleanup();
-        process.stdout.write("\n");
-        process.exit(1);
-      } else if (c === "\u007f" || c === "\b") {
-        if (token.length > 0) {
-          token = token.slice(0, -1);
-          process.stdout.write("\b \b");
+      for (const c of chunk) {
+        if (c === "\n" || c === "\r") {
+          cleanup();
+          process.stdout.write("\n");
+          resolve(token);
+          return;
+        } else if (c === "\u0003") {
+          cleanup();
+          process.stdout.write("\n");
+          process.exit(1);
+          return;
+        } else if (c === "\u007f" || c === "\b") {
+          if (token.length > 0) {
+            token = token.slice(0, -1);
+            process.stdout.write("\b \b");
+          }
+        } else if (c >= " ") {
+          token += c;
+          process.stdout.write("*");
         }
-      } else if (c >= " ") {
-        token += c;
-        process.stdout.write("*");
       }
     };
 
