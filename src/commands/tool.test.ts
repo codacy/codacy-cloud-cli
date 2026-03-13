@@ -4,6 +4,7 @@ import { registerToolCommand } from "./tool";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 
 vi.mock("../api/client/services/AnalysisService");
+vi.mock("../utils/credentials", () => ({ loadCredentials: vi.fn(() => null) }));
 vi.spyOn(console, "log").mockImplementation(() => {});
 vi.spyOn(console, "error").mockImplementation(() => {});
 

@@ -26,6 +26,8 @@ _No pending tasks._ All commands implemented.
 | `pattern` | `pat` | ✅ Done | [tools-and-patterns.md](commands/tools-and-patterns.md) |
 | `analysis` | N/A | ✅ Done | [analysis.md](commands/analysis.md) |
 | `json-output` | N/A | ✅ Done | [json-output.md](commands/json-output.md) |
+| `login` | N/A | ✅ Done | — |
+| `logout` | N/A | ✅ Done | — |
 
 
 ## Other Specs
@@ -62,3 +64,4 @@ _No pending tasks._ All commands implemented.
 | 2026-03-05 | Analysis status in `repository` and `pull-request` About sections using `formatAnalysisStatus()`; `--reanalyze` option for both commands (13 new tests, 185 total) |
 | 2026-03-05 | JSON output filtering with `pickDeep` across all commands: `info`, `repositories`, `repository`, `pull-request`, `issues`, `issue`, `findings`, `finding`, `tools`, `patterns`; documented pattern in `src/commands/CLAUDE.md` |
 | 2026-03-12 | `patterns --enable-all` / `--disable-all` bulk update with filter support (6 new tests, 196 total) |
+| 2026-03-12 | `login` and `logout` commands: encrypted token storage in `~/.codacy/credentials`, masked interactive prompt, `--token` flag for non-interactive use, token resolution chain (env var → stored credentials); `checkApiToken()` updated to set `OpenAPI.HEADERS` dynamically (9 new tests, 219 total) |

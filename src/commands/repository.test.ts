@@ -6,6 +6,7 @@ import { RepositoryService } from "../api/client/services/RepositoryService";
 
 vi.mock("../api/client/services/AnalysisService");
 vi.mock("../api/client/services/RepositoryService");
+vi.mock("../utils/credentials", () => ({ loadCredentials: vi.fn(() => null) }));
 vi.spyOn(console, "log").mockImplementation(() => {});
 
 // Default mocks for analysis status API calls (overridden in specific tests)

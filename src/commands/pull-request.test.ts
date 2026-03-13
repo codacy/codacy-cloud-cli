@@ -12,6 +12,7 @@ vi.mock("../api/client/services/CoverageService");
 vi.mock("../api/client/services/RepositoryService");
 vi.mock("../api/client/services/ToolsService");
 vi.mock("../api/client/services/FileService");
+vi.mock("../utils/credentials", () => ({ loadCredentials: vi.fn(() => null) }));
 vi.spyOn(console, "log").mockImplementation(() => {});
 
 function createProgram(): Command {

@@ -22,13 +22,21 @@ npm link
 
 ## Authentication
 
-Set your Codacy API token as an environment variable:
+Log in interactively (recommended):
+
+```bash
+codacy login
+```
+
+Or set the `CODACY_API_TOKEN` environment variable:
 
 ```bash
 export CODACY_API_TOKEN=your-token-here
 ```
 
-You can get a token from **Codacy > My Account > Access Management > Account API Tokens**.
+You can get a token from **Codacy > My Account > Access Management > API Tokens** ([link](https://app.codacy.com/account/access-management)).
+
+The `login` command stores the token encrypted at `~/.codacy/credentials`. The environment variable takes precedence over stored credentials when both are present.
 
 ## Usage
 
@@ -49,6 +57,8 @@ codacy <command> --help   # Detailed usage for any command
 
 | Command | Description |
 |---|---|
+| `login` | Authenticate with Codacy by storing your API token |
+| `logout` | Remove stored Codacy API token |
 | `info` | Show authenticated user info and their organizations |
 | `repositories <provider> <org>` | List repositories for an organization |
 | `repository <provider> <org> <repo>` | Show metrics for a repository, or add/remove/follow/unfollow/reanalyze it |

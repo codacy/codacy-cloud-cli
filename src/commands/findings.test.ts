@@ -4,6 +4,7 @@ import { registerFindingsCommand } from "./findings";
 import { SecurityService } from "../api/client/services/SecurityService";
 
 vi.mock("../api/client/services/SecurityService");
+vi.mock("../utils/credentials", () => ({ loadCredentials: vi.fn(() => null) }));
 vi.spyOn(console, "log").mockImplementation(() => {});
 
 function createProgram(): Command {

@@ -1,7 +1,27 @@
+import { OpenAPI } from "../api/client/core/OpenAPI";
+import { loadCredentials } from "./credentials";
+
+export function updateApiHeaders(token: string): void {
+  OpenAPI.HEADERS = {
+    "api-token": token,
+    "X-Codacy-Origin": "cli-cloud-tool",
+  };
+}
+
 export function checkApiToken(): string {
-  const apiToken = process.env.CODACY_API_TOKEN;
-  if (!apiToken) {
-    throw new Error("CODACY_API_TOKEN environment variable is not set.");
+  const envToken = process.env.CODACY_API_TOKEN;
+  if (envToken) {
+    updateApiHeaders(envToken);
+    return envToken;
   }
-  return apiToken;
+
+  const stored = loadCredentials();
+  if (stored) {
+    updateApiHeaders(stored);
+    return stored;
+  }
+
+  throw new Error(
+    "No API token found. Set CODACY_API_TOKEN or run 'codacy login'.",
+  );
 }
