@@ -45,6 +45,8 @@ function makeRepoTool(uuid: string, name: string, isEnabled: boolean): AnalysisT
       enabledBy: [],
       hasConfigurationFile: false,
       usesConfigurationFile: false,
+      followsStandard: false,
+      isCustom: false,
     },
   } as AnalysisTool;
 }
