@@ -40,7 +40,7 @@
   "author": "Codacy <support@codacy.com> (https://www.codacy.com)",
   "license": "ISC",
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "dependencies": {
     "@codacy/tooling": "0.1.0",

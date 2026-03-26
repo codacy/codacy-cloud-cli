@@ -37,6 +37,18 @@ export function readConfigFile(filePath: string): CodacyConfig {
     if (!config.version || !Array.isArray(config.tools)) {
       throw new Error("Invalid configuration file: missing 'version' or 'tools' fields.");
     }
+    for (let i = 0; i < config.tools.length; i++) {
+      const tool = config.tools[i];
+      if (!tool || typeof tool !== "object") {
+        throw new Error(`Invalid configuration file: tools[${i}] must be an object.`);
+      }
+      if (typeof tool.toolId !== "string" || tool.toolId.trim() === "") {
+        throw new Error(`Invalid configuration file: tools[${i}] is missing a valid 'toolId'.`);
+      }
+      if (!Array.isArray(tool.patterns)) {
+        tool.patterns = [];
+      }
+    }
     return config;
   } catch (err) {
     if (err instanceof SyntaxError) {
@@ -110,7 +122,7 @@ export function buildImportPreview(
   );
 
   const totalPatterns = config.tools.reduce(
-    (sum, t) => sum + t.patterns.length,
+    (sum, t) => sum + (Array.isArray(t.patterns) ? t.patterns.length : 0),
     0,
   );
 

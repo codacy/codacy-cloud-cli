@@ -103,6 +103,27 @@ describe("readConfigFile", () => {
     expect(() => readConfigFile(tmpPath)).toThrow("missing");
     fs.unlinkSync(tmpPath);
   });
+
+  it("should throw when a tool entry is missing toolId", () => {
+    const tmpPath = "/tmp/test-no-toolid.json";
+    fs.writeFileSync(tmpPath, JSON.stringify({
+      version: 1,
+      tools: [{ patterns: [] }],
+    }));
+    expect(() => readConfigFile(tmpPath)).toThrow("tools[0] is missing a valid 'toolId'");
+    fs.unlinkSync(tmpPath);
+  });
+
+  it("should default patterns to empty array when missing", () => {
+    const tmpPath = "/tmp/test-no-patterns.json";
+    fs.writeFileSync(tmpPath, JSON.stringify({
+      version: 1,
+      tools: [{ toolId: "eslint" }],
+    }));
+    const result = readConfigFile(tmpPath);
+    expect(result.tools[0].patterns).toEqual([]);
+    fs.unlinkSync(tmpPath);
+  });
 });
 
 // ─── resolveToolId ────────────────────────────────────────────────────
