@@ -180,6 +180,7 @@ export function registerIssuesCommand(program: Command) {
     .option("-l, --languages <languages>", "comma-separated list of language names")
     .option("-t, --tags <tags>", "comma-separated list of tag names")
     .option("-a, --authors <authors>", "comma-separated list of author emails")
+    .option("-n, --limit <n>", "maximum number of issues to return (default: 100, max: 1000)", "100")
     .option("-O, --overview", "show issue count totals instead of the issues list")
     .addHelpText(
       "after",
@@ -188,6 +189,7 @@ Examples:
   $ codacy issues gh my-org my-repo
   $ codacy issues gh my-org my-repo --branch main --severities Critical,Medium
   $ codacy issues gh my-org my-repo --categories Security --overview
+  $ codacy issues gh my-org my-repo --limit 500
   $ codacy issues gh my-org my-repo --output json`,
     )
     .action(async function (
@@ -217,6 +219,8 @@ Examples:
         if (tags) body.tags = tags;
         const author = parseCommaList(opts.authors);
         if (author) body.authorEmails = author;
+
+        const limit = Math.min(Math.max(parseInt(opts.limit, 10) || 100, 1), 1000);
 
         const spinner = ora(
           isOverview ? "Fetching issues overview..." : "Fetching issues...",
@@ -254,21 +258,33 @@ Examples:
             authors: counts.authors,
           });
         } else {
-          const issuesResponse = await AnalysisService.searchRepositoryIssues(
-            provider,
-            organization,
-            repository,
-            undefined,
-            100,
-            body,
-          );
-          spinner.stop();
+          const pageSize = Math.min(limit, 100);
+          let issues: CommitIssue[] = [];
+          let cursor: string | undefined;
+          let total: number | undefined;
 
-          const issues = issuesResponse.data;
-          const total = issuesResponse.pagination?.total ?? issues.length;
+          do {
+            const issuesResponse = await AnalysisService.searchRepositoryIssues(
+              provider,
+              organization,
+              repository,
+              cursor,
+              pageSize,
+              body,
+            );
+            issues = issues.concat(issuesResponse.data);
+            total ??= issuesResponse.pagination?.total;
+            cursor = issuesResponse.pagination?.cursor;
+          } while (cursor && issues.length < limit);
+
+          // Trim to exact limit
+          if (issues.length > limit) issues = issues.slice(0, limit);
+          total ??= issues.length;
+          spinner.stop();
 
           if (format === "json") {
             printJson({ issues: issues.map((issue: any) => pickDeep(issue, [
+              "patternInfo.id",
               "patternInfo.severityLevel",
               "patternInfo.category",
               "patternInfo.subCategory",
@@ -285,10 +301,12 @@ Examples:
           }
 
           printIssuesList(issues, total);
-          printPaginationWarning(
-            issuesResponse.pagination,
-            "Use --severities, --categories, or --languages to filter issues.",
-          );
+          if (total > issues.length) {
+            printPaginationWarning(
+              { cursor: "more", limit: issues.length },
+              "Use --limit <n> (max 1000) to fetch more, or --severities, --categories, --languages to filter.",
+            );
+          }
         }
       } catch (err) {
         handleError(err);

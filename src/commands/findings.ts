@@ -176,6 +176,7 @@ export function registerFindingsCommand(program: Command) {
       "-T, --scan-types <types>",
       "comma-separated scan types (case-insensitive): SAST, Secrets, SCA, CICD, IaC, DAST, PenTesting, License, CSPM",
     )
+    .option("-n, --limit <n>", "maximum number of findings to return (default: 100, max: 1000)", "100")
     .option("-d, --dast-targets <urls>", "comma-separated DAST target URLs")
     .addHelpText(
       "after",
@@ -185,6 +186,7 @@ Examples:
   $ codacy findings gh my-org
   $ codacy findings gh my-org --severities Critical,High
   $ codacy findings gh my-org my-repo --statuses Overdue,DueSoon
+  $ codacy findings gh my-org my-repo --limit 500
   $ codacy findings gh my-org my-repo --output json`,
     )
     .action(async function (
@@ -214,25 +216,38 @@ Examples:
         const dastTargets = parseCommaList(opts.dastTargets);
         if (dastTargets) body.dastTargetUrls = dastTargets;
 
+        const limit = Math.min(Math.max(parseInt(opts.limit, 10) || 100, 1), 1000);
+
         const spinner = ora(
           repository
             ? "Fetching findings..."
             : "Fetching organization findings...",
         ).start();
 
-        const response = await SecurityService.searchSecurityItems(
-          provider,
-          organization,
-          undefined,
-          100,
-          "Status", // actually sorting by due date
-          "asc",
-          body,
-        );
-        spinner.stop();
+        const pageSize = Math.min(limit, 100);
+        let items: SrmItem[] = [];
+        let cursor: string | undefined;
+        let total: number | undefined;
 
-        const items = response.data;
-        const total = response.pagination?.total ?? items.length;
+        do {
+          const response = await SecurityService.searchSecurityItems(
+            provider,
+            organization,
+            cursor,
+            pageSize,
+            "Status", // actually sorting by due date
+            "asc",
+            body,
+          );
+          items = items.concat(response.data);
+          total ??= response.pagination?.total;
+          cursor = response.pagination?.cursor;
+        } while (cursor && items.length < limit);
+
+        // Trim to exact limit
+        if (items.length > limit) items = items.slice(0, limit);
+        total ??= items.length;
+        spinner.stop();
 
         if (format === "json") {
           printJson({
@@ -261,10 +276,12 @@ Examples:
 
         // Show repository column only when browsing org-wide (no repo filter)
         printFindingsList(items, total, !repository);
-        printPaginationWarning(
-          response.pagination,
-          "Use --severities or --statuses to filter findings.",
-        );
+        if (total > items.length) {
+          printPaginationWarning(
+            { cursor: "more", limit: items.length },
+            "Use --limit <n> (max 1000) to fetch more, or --severities, --statuses to filter.",
+          );
+        }
       } catch (err) {
         handleError(err);
       }

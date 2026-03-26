@@ -470,9 +470,9 @@ describe("issues command", () => {
       "test-repo",
     ]);
 
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringContaining('"Potential SQL injection vulnerability"'),
-    );
+    const jsonOutput = (console.log as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(jsonOutput).toContain('"Potential SQL injection vulnerability"');
+    expect(jsonOutput).toContain('"sql-injection"');
   });
 
   it("should output JSON for overview when --overview --output json is specified", async () => {
@@ -495,6 +495,120 @@ describe("issues command", () => {
 
     expect(console.log).toHaveBeenCalledWith(
       expect.stringContaining('"Security"'),
+    );
+  });
+
+  it("should pass a custom limit <= 100 directly to the API", async () => {
+    vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+      data: [],
+    } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "issues",
+      "gh",
+      "test-org",
+      "test-repo",
+      "--limit",
+      "50",
+    ]);
+
+    expect(AnalysisService.searchRepositoryIssues).toHaveBeenCalledWith(
+      "gh",
+      "test-org",
+      "test-repo",
+      undefined,
+      50,
+      {},
+    );
+  });
+
+  it("should paginate when limit > 100", async () => {
+    const page1Issues = Array.from({ length: 100 }, (_, i) => ({
+      issueId: `issue-${i}`,
+      resultDataId: i,
+      filePath: `file-${i}.ts`,
+      fileId: i,
+      patternInfo: { id: "p1", category: "Style", severityLevel: "Warning", level: "Warning" },
+      toolInfo: { uuid: "t1", name: "Tool" },
+      lineNumber: 1,
+      message: `Issue ${i}`,
+      language: "TypeScript",
+      lineText: "x",
+      falsePositiveThreshold: 0.5,
+    }));
+    const page2Issues = Array.from({ length: 50 }, (_, i) => ({
+      issueId: `issue-${100 + i}`,
+      resultDataId: 100 + i,
+      filePath: `file-${100 + i}.ts`,
+      fileId: 100 + i,
+      patternInfo: { id: "p1", category: "Style", severityLevel: "Warning", level: "Warning" },
+      toolInfo: { uuid: "t1", name: "Tool" },
+      lineNumber: 1,
+      message: `Issue ${100 + i}`,
+      language: "TypeScript",
+      lineText: "x",
+      falsePositiveThreshold: 0.5,
+    }));
+
+    vi.mocked(AnalysisService.searchRepositoryIssues)
+      .mockResolvedValueOnce({
+        data: page1Issues,
+        pagination: { cursor: "cursor-2", limit: 100, total: 250 },
+      } as any)
+      .mockResolvedValueOnce({
+        data: page2Issues,
+        pagination: { cursor: undefined, limit: 100, total: 250 },
+      } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "issues",
+      "gh",
+      "test-org",
+      "test-repo",
+      "--limit",
+      "150",
+    ]);
+
+    expect(AnalysisService.searchRepositoryIssues).toHaveBeenCalledTimes(2);
+    // First call: no cursor
+    expect(AnalysisService.searchRepositoryIssues).toHaveBeenNthCalledWith(
+      1, "gh", "test-org", "test-repo", undefined, 100, {},
+    );
+    // Second call: with cursor from first response
+    expect(AnalysisService.searchRepositoryIssues).toHaveBeenNthCalledWith(
+      2, "gh", "test-org", "test-repo", "cursor-2", 100, {},
+    );
+
+    const output = getAllOutput();
+    expect(output).toContain("Issues — Found 250 issues");
+  });
+
+  it("should cap limit at 1000", async () => {
+    vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+      data: [],
+    } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "issues",
+      "gh",
+      "test-org",
+      "test-repo",
+      "--limit",
+      "5000",
+    ]);
+
+    // Should use pageSize 100 (min of 1000, 100)
+    expect(AnalysisService.searchRepositoryIssues).toHaveBeenCalledWith(
+      "gh", "test-org", "test-repo", undefined, 100, {},
     );
   });
 

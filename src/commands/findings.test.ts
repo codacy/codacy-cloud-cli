@@ -500,6 +500,117 @@ describe("findings command", () => {
     );
   });
 
+  it("should pass a custom limit <= 100 directly to the API", async () => {
+    vi.mocked(SecurityService.searchSecurityItems).mockResolvedValue({
+      data: [],
+    } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "findings",
+      "gh",
+      "test-org",
+      "test-repo",
+      "--limit",
+      "50",
+    ]);
+
+    expect(SecurityService.searchSecurityItems).toHaveBeenCalledWith(
+      "gh",
+      "test-org",
+      undefined,
+      50,
+      "Status",
+      "asc",
+      {
+        repositories: ["test-repo"],
+        statuses: ["Overdue", "OnTrack", "DueSoon"],
+      },
+    );
+  });
+
+  it("should paginate when limit > 100", async () => {
+    const page1 = Array.from({ length: 100 }, (_, i) => ({
+      id: `finding-${i}`,
+      title: `Finding ${i}`,
+      priority: "Medium",
+      status: "OnTrack",
+      securityCategory: "Other",
+      scanType: "SAST",
+      dueAt: "2024-06-01T00:00:00Z",
+    }));
+    const page2 = Array.from({ length: 50 }, (_, i) => ({
+      id: `finding-${100 + i}`,
+      title: `Finding ${100 + i}`,
+      priority: "Medium",
+      status: "OnTrack",
+      securityCategory: "Other",
+      scanType: "SAST",
+      dueAt: "2024-06-01T00:00:00Z",
+    }));
+
+    vi.mocked(SecurityService.searchSecurityItems)
+      .mockResolvedValueOnce({
+        data: page1,
+        pagination: { cursor: "cursor-2", limit: 100, total: 300 },
+      } as any)
+      .mockResolvedValueOnce({
+        data: page2,
+        pagination: { cursor: undefined, limit: 100, total: 300 },
+      } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "findings",
+      "gh",
+      "test-org",
+      "test-repo",
+      "--limit",
+      "200",
+    ]);
+
+    expect(SecurityService.searchSecurityItems).toHaveBeenCalledTimes(2);
+    expect(SecurityService.searchSecurityItems).toHaveBeenNthCalledWith(
+      1, "gh", "test-org", undefined, 100, "Status", "asc",
+      { repositories: ["test-repo"], statuses: ["Overdue", "OnTrack", "DueSoon"] },
+    );
+    expect(SecurityService.searchSecurityItems).toHaveBeenNthCalledWith(
+      2, "gh", "test-org", "cursor-2", 100, "Status", "asc",
+      { repositories: ["test-repo"], statuses: ["Overdue", "OnTrack", "DueSoon"] },
+    );
+
+    const output = getAllOutput();
+    expect(output).toContain("Findings — Found 300 findings");
+  });
+
+  it("should cap limit at 1000", async () => {
+    vi.mocked(SecurityService.searchSecurityItems).mockResolvedValue({
+      data: [],
+    } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "findings",
+      "gh",
+      "test-org",
+      "test-repo",
+      "--limit",
+      "5000",
+    ]);
+
+    // Should use pageSize 100 (min of 1000, 100)
+    expect(SecurityService.searchSecurityItems).toHaveBeenCalledWith(
+      "gh", "test-org", undefined, 100, "Status", "asc",
+      { repositories: ["test-repo"], statuses: ["Overdue", "OnTrack", "DueSoon"] },
+    );
+  });
+
   it("should fail when CODACY_API_TOKEN is not set", async () => {
     delete process.env.CODACY_API_TOKEN;
 
