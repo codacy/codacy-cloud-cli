@@ -1,6 +1,6 @@
 {
   "name": "@codacy/codacy-cloud-cli",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "A command-line tool to interact with Codacy Cloud from your terminal",
   "homepage": "https://www.codacy.com",
   "repository": {
@@ -43,6 +43,7 @@
     "node": ">=18"
   },
   "dependencies": {
+    "@codacy/tooling": "0.1.0",
     "ansis": "4.0.0",
     "cli-table3": "^0.6.3",
     "commander": "14.0.0",

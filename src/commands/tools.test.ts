@@ -1,9 +1,16 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Command } from "commander";
 import { registerToolsCommand } from "./tools";
+import * as fs from "fs";
 import { AnalysisService } from "../api/client/services/AnalysisService";
+import { ToolsService } from "../api/client/services/ToolsService";
+import { CodingStandardsService } from "../api/client/services/CodingStandardsService";
+import * as importConfig from "../utils/import-config";
+import * as prompt from "../utils/prompt";
 
 vi.mock("../api/client/services/AnalysisService");
+vi.mock("../api/client/services/CodingStandardsService");
+vi.mock("../api/client/services/ToolsService");
 vi.mock("../utils/credentials", () => ({ loadCredentials: vi.fn(() => null) }));
 vi.spyOn(console, "log").mockImplementation(() => {});
 vi.spyOn(console, "error").mockImplementation(() => {});
@@ -234,5 +241,173 @@ describe("tools command", () => {
     ).rejects.toThrow("process.exit called");
 
     mockExit.mockRestore();
+  });
+
+  // ─── Import mode ──────────────────────────────────────────────────────
+
+  describe("--import", () => {
+    const configContent = JSON.stringify({
+      version: 1,
+      metadata: {
+        repositoryId: null,
+        repositoryName: null,
+        createdAt: "2025-01-01",
+        updatedAt: "2025-01-01",
+        languages: ["TypeScript"],
+      },
+      tools: [
+        {
+          toolId: "ESLint",
+          patterns: [{ patternId: "no-unused-vars" }],
+        },
+      ],
+    });
+
+    const tmpConfigPath = "/tmp/test-import-config.json";
+
+    beforeEach(() => {
+      fs.writeFileSync(tmpConfigPath, configContent);
+      vi.mocked(AnalysisService.updateRepositoryToolPatterns).mockResolvedValue(undefined as any);
+      vi.mocked(AnalysisService.configureTool).mockResolvedValue(undefined as any);
+      vi.spyOn(importConfig, "fetchAllTools").mockResolvedValue([
+        {
+          uuid: "uuid-eslint",
+          name: "ESLint",
+          shortName: "eslint",
+          prefix: "ESLint_",
+          version: "1.0",
+          needsCompilation: false,
+          configurationFilenames: [],
+          dockerImage: "docker/eslint",
+          languages: ["TypeScript"],
+          clientSide: false,
+          standalone: false,
+          enabledByDefault: false,
+          configurable: true,
+        },
+      ] as any);
+      vi.mocked(AnalysisService.getRepositoryWithAnalysis).mockResolvedValue({
+        data: {
+          repository: {
+            provider: "gh",
+            owner: "test-org",
+            name: "test-repo",
+            standards: [],
+            languages: [],
+            problems: [],
+          },
+        },
+      } as any);
+    });
+
+    afterEach(() => {
+      if (fs.existsSync(tmpConfigPath)) fs.unlinkSync(tmpConfigPath);
+    });
+
+    it("should import config with --skip-approval", async () => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "tools", "gh", "test-org", "test-repo",
+        "--import", tmpConfigPath, "-y",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).toContain("imported successfully");
+    });
+
+    it("should cancel import when user declines confirmation", async () => {
+      vi.spyOn(prompt, "confirmAction").mockResolvedValue(false);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "tools", "gh", "test-org", "test-repo",
+        "--import", tmpConfigPath,
+      ]);
+
+      const output = getAllOutput();
+      expect(output).toContain("cancelled");
+      expect(AnalysisService.configureTool).not.toHaveBeenCalled();
+    });
+
+    it("should warn about coding standards", async () => {
+      vi.mocked(AnalysisService.getRepositoryWithAnalysis).mockResolvedValue({
+        data: {
+          repository: {
+            provider: "gh",
+            owner: "test-org",
+            name: "test-repo",
+            standards: [{ id: 1, name: "Security" }],
+            languages: [],
+            problems: [],
+          },
+        },
+      } as any);
+
+      vi.spyOn(prompt, "confirmAction").mockResolvedValue(false);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "tools", "gh", "test-org", "test-repo",
+        "--import", tmpConfigPath,
+      ]);
+
+      const output = getAllOutput();
+      expect(output).toContain("Security");
+      expect(output).toContain("coding standard");
+    });
+
+    it("should unlink coding standards with --force", async () => {
+      vi.mocked(CodingStandardsService.applyCodingStandardToRepositories).mockResolvedValue({} as any);
+      vi.mocked(AnalysisService.getRepositoryWithAnalysis).mockResolvedValue({
+        data: {
+          repository: {
+            provider: "gh",
+            owner: "test-org",
+            name: "test-repo",
+            standards: [
+              { id: 100, name: "Security" },
+              { id: 200, name: "OWASP10" },
+            ],
+            languages: [],
+            problems: [],
+          },
+        },
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "tools", "gh", "test-org", "test-repo",
+        "--import", tmpConfigPath, "--force", "-y",
+      ]);
+
+      // Should unlink both standards
+      expect(CodingStandardsService.applyCodingStandardToRepositories).toHaveBeenCalledWith(
+        "gh", "test-org", 100, { link: [], unlink: ["test-repo"] },
+      );
+      expect(CodingStandardsService.applyCodingStandardToRepositories).toHaveBeenCalledWith(
+        "gh", "test-org", 200, { link: [], unlink: ["test-repo"] },
+      );
+
+      const output = getAllOutput();
+      expect(output).toContain("will stop following");
+      expect(output).toContain("Security");
+      expect(output).toContain("OWASP10");
+      expect(output).toContain("imported successfully");
+    });
+
+    it("should report errors for failing tools", async () => {
+      vi.mocked(AnalysisService.configureTool).mockRejectedValue(
+        new Error("Conflict"),
+      );
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "tools", "gh", "test-org", "test-repo",
+        "--import", tmpConfigPath, "-y",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).toContain("error");
+    });
   });
 });

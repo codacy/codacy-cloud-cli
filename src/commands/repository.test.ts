@@ -3,9 +3,11 @@ import { Command } from "commander";
 import { registerRepositoryCommand } from "./repository";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 import { RepositoryService } from "../api/client/services/RepositoryService";
+import { CodingStandardsService } from "../api/client/services/CodingStandardsService";
 
 vi.mock("../api/client/services/AnalysisService");
 vi.mock("../api/client/services/RepositoryService");
+vi.mock("../api/client/services/CodingStandardsService");
 vi.mock("../utils/credentials", () => ({ loadCredentials: vi.fn(() => null) }));
 vi.spyOn(console, "log").mockImplementation(() => {});
 
@@ -659,6 +661,84 @@ describe("repository command", () => {
       .join("\n");
     expect(allOutput).toContain("Finished");
     expect(allOutput).toContain("head123");
+  });
+
+  // ─── Standards display ──────────────────────────────────────────────
+
+  it("should display coding standard IDs alongside names", async () => {
+    const dataWithMultipleStandards = {
+      ...mockRepoData,
+      repository: {
+        ...mockRepoData.repository,
+        standards: [
+          { id: 100, name: "Security" },
+          { id: 200, name: "OWASP10" },
+        ],
+      },
+    };
+
+    vi.mocked(AnalysisService.getRepositoryWithAnalysis).mockResolvedValue({
+      data: dataWithMultipleStandards as any,
+    });
+    vi.mocked(AnalysisService.listRepositoryPullRequests).mockResolvedValue({
+      data: [] as any,
+    });
+    vi.mocked(AnalysisService.issuesOverview).mockResolvedValue({
+      data: { counts: { categories: [], levels: [], languages: [], tags: [], patterns: [], authors: [] } },
+    });
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "repository", "gh", "test-org", "test-repo",
+    ]);
+
+    const allOutput = (console.log as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => c[0])
+      .join("\n");
+    expect(allOutput).toContain("Security (#100)");
+    expect(allOutput).toContain("OWASP10 (#200)");
+  });
+
+  // ─── Link / Unlink standard ────────────────────────────────────────
+
+  it("should link a coding standard with --link-standard", async () => {
+    vi.mocked(CodingStandardsService.applyCodingStandardToRepositories).mockResolvedValue({} as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "repository", "gh", "test-org", "test-repo", "--link-standard", "12345",
+    ]);
+
+    expect(CodingStandardsService.applyCodingStandardToRepositories).toHaveBeenCalledWith(
+      "gh", "test-org", 12345, { link: ["test-repo"], unlink: [] },
+    );
+
+    const allOutput = (console.log as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => c[0])
+      .join("\n");
+    expect(allOutput).toContain("#12345");
+    expect(allOutput).toContain("linked");
+    expect(allOutput).toContain("test-repo");
+  });
+
+  it("should unlink a coding standard with --unlink-standard", async () => {
+    vi.mocked(CodingStandardsService.applyCodingStandardToRepositories).mockResolvedValue({} as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "repository", "gh", "test-org", "test-repo", "--unlink-standard", "67890",
+    ]);
+
+    expect(CodingStandardsService.applyCodingStandardToRepositories).toHaveBeenCalledWith(
+      "gh", "test-org", 67890, { link: [], unlink: ["test-repo"] },
+    );
+
+    const allOutput = (console.log as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => c[0])
+      .join("\n");
+    expect(allOutput).toContain("#67890");
+    expect(allOutput).toContain("unlinked");
+    expect(allOutput).toContain("test-repo");
   });
 
   it("should filter JSON output with pickDeep", async () => {

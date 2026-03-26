@@ -26,6 +26,7 @@ import {
 } from "../utils/formatting";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 import { RepositoryService } from "../api/client/services/RepositoryService";
+import { CodingStandardsService } from "../api/client/services/CodingStandardsService";
 import { RepositoryWithAnalysis } from "../api/client/models/RepositoryWithAnalysis";
 import { PullRequestWithAnalysis } from "../api/client/models/PullRequestWithAnalysis";
 import { Commit } from "../api/client/models/Commit";
@@ -82,7 +83,7 @@ function printSetup(data: RepositoryWithAnalysis): void {
   table.push({
     "Coding Standards":
       repo.standards.length > 0
-        ? repo.standards.map((s) => s.name).join(", ")
+        ? repo.standards.map((s) => `${s.name} (#${s.id})`).join(", ")
         : ansis.dim("None"),
   });
   table.push({
@@ -220,6 +221,8 @@ export function registerRepositoryCommand(program: Command) {
     .option("-f, --follow", "follow this repository on Codacy")
     .option("-u, --unfollow", "unfollow this repository on Codacy")
     .option("-R, --reanalyze", "request reanalysis of the HEAD commit")
+    .option("-L, --link-standard <id>", "link a coding standard to this repository (by standard ID)")
+    .option("-K, --unlink-standard <id>", "unlink a coding standard from this repository (by standard ID)")
     .addHelpText(
       "after",
       `
@@ -230,7 +233,9 @@ Examples:
   $ codacy-cloud-cli repository gh my-org my-repo --remove
   $ codacy-cloud-cli repository gh my-org my-repo --follow
   $ codacy-cloud-cli repository gh my-org my-repo --unfollow
-  $ codacy-cloud-cli repository gh my-org my-repo --reanalyze`,
+  $ codacy-cloud-cli repository gh my-org my-repo --reanalyze
+  $ codacy-cloud-cli repository gh my-org my-repo --link-standard 12345
+  $ codacy-cloud-cli repository gh my-org my-repo --unlink-standard 12345`,
     )
     .action(async function (
       this: Command,
@@ -335,6 +340,38 @@ Examples:
               `Failed to request reanalysis: ${reanalyzeErr instanceof Error ? reanalyzeErr.message : reanalyzeErr}`,
             );
           }
+          return;
+        }
+
+        // ── Action: link-standard ─────────────────────────────────────────
+        if (opts.linkStandard) {
+          const spinner = ora(`Linking coding standard #${opts.linkStandard} to ${repository}...`).start();
+          await CodingStandardsService.applyCodingStandardToRepositories(
+            provider,
+            organization,
+            Number(opts.linkStandard),
+            { link: [repository], unlink: [] },
+          );
+          spinner.stop();
+          console.log(
+            `${ansis.green("✓")} Coding standard #${opts.linkStandard} linked to ${ansis.bold(repository)}.`,
+          );
+          return;
+        }
+
+        // ── Action: unlink-standard ───────────────────────────────────────
+        if (opts.unlinkStandard) {
+          const spinner = ora(`Unlinking coding standard #${opts.unlinkStandard} from ${repository}...`).start();
+          await CodingStandardsService.applyCodingStandardToRepositories(
+            provider,
+            organization,
+            Number(opts.unlinkStandard),
+            { link: [], unlink: [repository] },
+          );
+          spinner.stop();
+          console.log(
+            `${ansis.green("✓")} Coding standard #${opts.unlinkStandard} unlinked from ${ansis.bold(repository)}.`,
+          );
           return;
         }
 
