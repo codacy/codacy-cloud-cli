@@ -10,6 +10,7 @@ import { Pattern } from "../api/client/models/Pattern";
 import { CodeBlockLine } from "../api/client/models/CodeBlockLine";
 import { CveRecord } from "./cve";
 import { AnalysisTool } from "../api/client/models/AnalysisTool";
+import { Tool } from "../api/client/models/Tool";
 import { formatFriendlyDate } from "./output";
 
 export const SEVERITY_DISPLAY: Record<string, string> = {
@@ -534,6 +535,73 @@ export function findToolByName(
     t.name.toLowerCase().startsWith(normalized),
   );
   return anyPrefixMatches.sort((a, b) => a.name.length - b.name.length)[0];
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Resolve a list of tool inputs (UUIDs or name strings) to UUIDs.
+ *
+ * Resolution order for each non-UUID input:
+ * 1. Exact match (case-insensitive) on tool.name
+ * 2. Exact match (case-insensitive) on tool.shortName
+ * 3. Substring search (case-insensitive) on name, shortName, and prefix — only if exactly one tool matches
+ *
+ * The fetchTools callback is only called when at least one input is not a UUID.
+ */
+export async function resolveToolUuids(
+  inputs: string[],
+  fetchTools: () => Promise<Tool[]>,
+): Promise<string[]> {
+  let allTools: Tool[] | undefined;
+
+  const uuids: string[] = [];
+  for (const input of inputs) {
+    if (UUID_RE.test(input)) {
+      uuids.push(input);
+      continue;
+    }
+
+    if (!allTools) {
+      allTools = await fetchTools();
+    }
+
+    const lower = input.toLowerCase();
+
+    // Exact match on name
+    const nameMatch = allTools.find((t) => t.name.toLowerCase() === lower);
+    if (nameMatch) {
+      uuids.push(nameMatch.uuid);
+      continue;
+    }
+
+    // Exact match on shortName
+    const shortMatch = allTools.find((t) => t.shortName.toLowerCase() === lower);
+    if (shortMatch) {
+      uuids.push(shortMatch.uuid);
+      continue;
+    }
+
+    // Substring search on name, shortName, and prefix
+    const matches = allTools.filter((t) => {
+      return (
+        t.name.toLowerCase().includes(lower) ||
+        t.shortName.toLowerCase().includes(lower) ||
+        (t.prefix && t.prefix.toLowerCase().includes(lower))
+      );
+    });
+
+    if (matches.length === 1) {
+      uuids.push(matches[0].uuid);
+    } else if (matches.length === 0) {
+      throw new Error(`Tool "${input}" not found.`);
+    } else {
+      const names = matches.map((t) => t.name).join(", ");
+      throw new Error(`Tool "${input}" is ambiguous, matches: ${names}`);
+    }
+  }
+
+  return [...new Set(uuids)];
 }
 
 const COVERAGE_REPORTS_WAIT_HOURS = 3;
