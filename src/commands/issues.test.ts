@@ -681,14 +681,13 @@ describe("issues command", () => {
       );
     });
 
-    it("should resolve a substring match via prefix when only one tool matches", async () => {
+    it("should resolve an exact shortName match (eslint9)", async () => {
       vi.mocked(ToolsService.listTools).mockResolvedValue(mockToolList as any);
       vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
         data: [],
       } as any);
 
       const program = createProgram();
-      // "eslint9" matches shortName "eslint9" exactly
       await program.parseAsync([
         "node", "test", "issues", "gh", "test-org", "test-repo",
         "--tools", "eslint9",
@@ -697,6 +696,25 @@ describe("issues command", () => {
       expect(AnalysisService.searchRepositoryIssues).toHaveBeenCalledWith(
         "gh", "test-org", "test-repo", undefined, 100,
         { toolUuids: ["uuid-eslint9"] },
+      );
+    });
+
+    it("should resolve a unique substring match via prefix", async () => {
+      vi.mocked(ToolsService.listTools).mockResolvedValue(mockToolList as any);
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: [],
+      } as any);
+
+      const program = createProgram();
+      // "semgr" is not an exact name or shortName, but substring-matches only Semgrep
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--tools", "semgr",
+      ]);
+
+      expect(AnalysisService.searchRepositoryIssues).toHaveBeenCalledWith(
+        "gh", "test-org", "test-repo", undefined, 100,
+        { toolUuids: ["uuid-semgrep"] },
       );
     });
 
@@ -741,7 +759,7 @@ describe("issues command", () => {
       ).rejects.toThrow("process.exit called");
 
       expect(mockStderr).toHaveBeenCalledWith(
-        expect.stringContaining('not found'),
+        expect.stringContaining("not found"),
       );
 
       mockExit.mockRestore();

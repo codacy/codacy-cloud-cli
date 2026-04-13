@@ -133,39 +133,20 @@ describe("resolveToolUuids", () => {
   });
 
   it("should error on ambiguous substring match", async () => {
-    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit called");
-    });
-    vi.spyOn(console, "error").mockImplementation(() => {});
-
     await expect(resolveToolUuids(["mark"], fetchTools)).rejects.toThrow(
-      "process.exit called",
+      /ambiguous.*Markdownlint.*Remarklint/,
     );
-
-    expect(console.error).toHaveBeenCalledWith(
-      expect.stringContaining("ambiguous"),
-    );
-
-    mockExit.mockRestore();
-    (console.error as any).mockRestore();
   });
 
   it("should error when tool is not found", async () => {
-    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-      throw new Error("process.exit called");
-    });
-    vi.spyOn(console, "error").mockImplementation(() => {});
-
     await expect(resolveToolUuids(["zzz"], fetchTools)).rejects.toThrow(
-      "process.exit called",
+      'Tool "zzz" not found',
     );
+  });
 
-    expect(console.error).toHaveBeenCalledWith(
-      expect.stringContaining("not found"),
-    );
-
-    mockExit.mockRestore();
-    (console.error as any).mockRestore();
+  it("should deduplicate resolved UUIDs", async () => {
+    const result = await resolveToolUuids(["eslint", "eslint"], fetchTools);
+    expect(result).toEqual(["uuid-eslint"]);
   });
 
   it("should handle mixed UUIDs and names, fetching tools only once", async () => {

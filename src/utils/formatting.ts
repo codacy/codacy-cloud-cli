@@ -594,18 +594,14 @@ export async function resolveToolUuids(
     if (matches.length === 1) {
       uuids.push(matches[0].uuid);
     } else if (matches.length === 0) {
-      console.error(ansis.red(`Error: Tool "${input}" not found.`));
-      process.exit(1);
+      throw new Error(`Tool "${input}" not found.`);
     } else {
       const names = matches.map((t) => t.name).join(", ");
-      console.error(
-        ansis.red(`Error: Tool "${input}" is ambiguous, matches: ${names}`),
-      );
-      process.exit(1);
+      throw new Error(`Tool "${input}" is ambiguous, matches: ${names}`);
     }
   }
 
-  return uuids;
+  return [...new Set(uuids)];
 }
 
 const COVERAGE_REPORTS_WAIT_HOURS = 3;
