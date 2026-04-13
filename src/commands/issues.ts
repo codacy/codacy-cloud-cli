@@ -10,8 +10,10 @@ import {
   printJson,
   printPaginationWarning,
 } from "../utils/output";
-import { printSection, printIssueCard } from "../utils/formatting";
+import { printSection, printIssueCard, resolveToolUuids } from "../utils/formatting";
 import { AnalysisService } from "../api/client/services/AnalysisService";
+import { ToolsService } from "../api/client/services/ToolsService";
+import { Tool } from "../api/client/models/Tool";
 import { CommitIssue } from "../api/client/models/CommitIssue";
 import { SeverityLevel } from "../api/client/models/SeverityLevel";
 import { SearchRepositoryIssuesBody } from "../api/client/models/SearchRepositoryIssuesBody";
@@ -169,6 +171,7 @@ export function registerIssuesCommand(program: Command) {
     .argument("<repository>", "repository name")
     .option("-b, --branch <branch>", "branch name (defaults to the main branch)")
     .option("-p, --patterns <patterns>", "comma-separated list of pattern IDs")
+    .option("-T, --tools <tools>", "comma-separated tool UUIDs or names to filter by")
     .option(
       "-s, --severities <severities>",
       "comma-separated severity levels: Critical, High, Medium, Minor (or Error, Warning, Info)",
@@ -189,6 +192,7 @@ Examples:
   $ codacy issues gh my-org my-repo
   $ codacy issues gh my-org my-repo --branch main --severities Critical,Medium
   $ codacy issues gh my-org my-repo --categories Security --overview
+  $ codacy issues gh my-org my-repo --tools eslint,semgrep
   $ codacy issues gh my-org my-repo --limit 500
   $ codacy issues gh my-org my-repo --output json`,
     )
@@ -219,6 +223,20 @@ Examples:
         if (tags) body.tags = tags;
         const author = parseCommaList(opts.authors);
         if (author) body.authorEmails = author;
+
+        const toolInputs = parseCommaList(opts.tools);
+        if (toolInputs) {
+          body.toolUuids = await resolveToolUuids(toolInputs, async () => {
+            const tools: Tool[] = [];
+            let cursor: string | undefined;
+            do {
+              const resp = await ToolsService.listTools(cursor, 100);
+              tools.push(...resp.data);
+              cursor = resp.pagination?.cursor;
+            } while (cursor);
+            return tools;
+          });
+        }
 
         const limit = Math.min(Math.max(parseInt(opts.limit, 10) || 100, 1), 1000);
 

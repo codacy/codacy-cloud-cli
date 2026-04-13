@@ -2,8 +2,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Command } from "commander";
 import { registerIssuesCommand } from "./issues";
 import { AnalysisService } from "../api/client/services/AnalysisService";
+import { ToolsService } from "../api/client/services/ToolsService";
 
 vi.mock("../api/client/services/AnalysisService");
+vi.mock("../api/client/services/ToolsService");
 vi.mock("../utils/credentials", () => ({ loadCredentials: vi.fn(() => null) }));
 vi.spyOn(console, "log").mockImplementation(() => {});
 
@@ -610,6 +612,159 @@ describe("issues command", () => {
     expect(AnalysisService.searchRepositoryIssues).toHaveBeenCalledWith(
       "gh", "test-org", "test-repo", undefined, 100, {},
     );
+  });
+
+  describe("--tools filter", () => {
+    const mockToolList = {
+      data: [
+        { uuid: "uuid-eslint", name: "ESLint", shortName: "eslint", prefix: "ESLint_" },
+        { uuid: "uuid-eslint9", name: "ESLint 9", shortName: "eslint9", prefix: "ESLint9_" },
+        { uuid: "uuid-semgrep", name: "Semgrep", shortName: "semgrep", prefix: "Semgrep_" },
+        { uuid: "uuid-markdownlint", name: "Markdownlint", shortName: "markdownlint", prefix: "Markdownlint_" },
+        { uuid: "uuid-remarklint", name: "Remarklint", shortName: "remarklint", prefix: "Remarklint_" },
+      ],
+      pagination: undefined,
+    };
+
+    it("should pass a UUID directly to body.toolUuids", async () => {
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: [],
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--tools", "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      ]);
+
+      expect(ToolsService.listTools).not.toHaveBeenCalled();
+      expect(AnalysisService.searchRepositoryIssues).toHaveBeenCalledWith(
+        "gh", "test-org", "test-repo", undefined, 100,
+        { toolUuids: ["a1b2c3d4-e5f6-7890-abcd-ef1234567890"] },
+      );
+    });
+
+    it("should resolve an exact tool name to its UUID", async () => {
+      vi.mocked(ToolsService.listTools).mockResolvedValue(mockToolList as any);
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: [],
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--tools", "eslint",
+      ]);
+
+      expect(ToolsService.listTools).toHaveBeenCalled();
+      expect(AnalysisService.searchRepositoryIssues).toHaveBeenCalledWith(
+        "gh", "test-org", "test-repo", undefined, 100,
+        { toolUuids: ["uuid-eslint"] },
+      );
+    });
+
+    it("should resolve a shortName match to its UUID", async () => {
+      vi.mocked(ToolsService.listTools).mockResolvedValue(mockToolList as any);
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: [],
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--tools", "semgrep",
+      ]);
+
+      expect(AnalysisService.searchRepositoryIssues).toHaveBeenCalledWith(
+        "gh", "test-org", "test-repo", undefined, 100,
+        { toolUuids: ["uuid-semgrep"] },
+      );
+    });
+
+    it("should resolve a substring match via prefix when only one tool matches", async () => {
+      vi.mocked(ToolsService.listTools).mockResolvedValue(mockToolList as any);
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: [],
+      } as any);
+
+      const program = createProgram();
+      // "eslint9" matches shortName "eslint9" exactly
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--tools", "eslint9",
+      ]);
+
+      expect(AnalysisService.searchRepositoryIssues).toHaveBeenCalledWith(
+        "gh", "test-org", "test-repo", undefined, 100,
+        { toolUuids: ["uuid-eslint9"] },
+      );
+    });
+
+    it("should error when tool name is ambiguous", async () => {
+      vi.mocked(ToolsService.listTools).mockResolvedValue(mockToolList as any);
+
+      const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit called");
+      });
+      const mockStderr = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const program = createProgram();
+      await expect(
+        program.parseAsync([
+          "node", "test", "issues", "gh", "test-org", "test-repo",
+          "--tools", "mark",
+        ]),
+      ).rejects.toThrow("process.exit called");
+
+      expect(mockStderr).toHaveBeenCalledWith(
+        expect.stringContaining("ambiguous"),
+      );
+
+      mockExit.mockRestore();
+      mockStderr.mockRestore();
+    });
+
+    it("should error when tool name is not found", async () => {
+      vi.mocked(ToolsService.listTools).mockResolvedValue(mockToolList as any);
+
+      const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit called");
+      });
+      const mockStderr = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const program = createProgram();
+      await expect(
+        program.parseAsync([
+          "node", "test", "issues", "gh", "test-org", "test-repo",
+          "--tools", "nonexistent",
+        ]),
+      ).rejects.toThrow("process.exit called");
+
+      expect(mockStderr).toHaveBeenCalledWith(
+        expect.stringContaining('not found'),
+      );
+
+      mockExit.mockRestore();
+      mockStderr.mockRestore();
+    });
+
+    it("should handle mixed UUIDs and tool names", async () => {
+      vi.mocked(ToolsService.listTools).mockResolvedValue(mockToolList as any);
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: [],
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--tools", "a1b2c3d4-e5f6-7890-abcd-ef1234567890,semgrep",
+      ]);
+
+      expect(AnalysisService.searchRepositoryIssues).toHaveBeenCalledWith(
+        "gh", "test-org", "test-repo", undefined, 100,
+        { toolUuids: ["a1b2c3d4-e5f6-7890-abcd-ef1234567890", "uuid-semgrep"] },
+      );
+    });
   });
 
   it("should fail when CODACY_API_TOKEN is not set", async () => {

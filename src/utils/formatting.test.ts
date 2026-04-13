@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { formatAnalysisStatus } from "./formatting";
+import { formatAnalysisStatus, resolveToolUuids } from "./formatting";
 
 // Mock ansis to return raw text for easier testing
 vi.mock("ansis", () => ({
@@ -90,5 +90,94 @@ describe("formatAnalysisStatus", () => {
       hasCoverageData: false,
     });
     expect(result).toBe("Never");
+  });
+});
+
+describe("resolveToolUuids", () => {
+  const mockTools = [
+    { uuid: "uuid-eslint", name: "ESLint", shortName: "eslint", prefix: "ESLint_" },
+    { uuid: "uuid-eslint9", name: "ESLint 9", shortName: "eslint9", prefix: "ESLint9_" },
+    { uuid: "uuid-semgrep", name: "Semgrep", shortName: "semgrep", prefix: "Semgrep_" },
+    { uuid: "uuid-markdownlint", name: "Markdownlint", shortName: "markdownlint", prefix: "Markdownlint_" },
+    { uuid: "uuid-remarklint", name: "Remarklint", shortName: "remarklint", prefix: "Remarklint_" },
+  ] as any[];
+
+  const fetchTools = vi.fn(async () => mockTools);
+
+  beforeEach(() => {
+    fetchTools.mockClear();
+  });
+
+  it("should pass UUIDs through without fetching tools", async () => {
+    const result = await resolveToolUuids(
+      ["a1b2c3d4-e5f6-7890-abcd-ef1234567890"],
+      fetchTools,
+    );
+    expect(result).toEqual(["a1b2c3d4-e5f6-7890-abcd-ef1234567890"]);
+    expect(fetchTools).not.toHaveBeenCalled();
+  });
+
+  it("should resolve exact name match (case-insensitive)", async () => {
+    const result = await resolveToolUuids(["eslint"], fetchTools);
+    expect(result).toEqual(["uuid-eslint"]);
+  });
+
+  it("should resolve exact shortName match (case-insensitive)", async () => {
+    const result = await resolveToolUuids(["eslint9"], fetchTools);
+    expect(result).toEqual(["uuid-eslint9"]);
+  });
+
+  it("should resolve a unique substring match via name", async () => {
+    const result = await resolveToolUuids(["semgr"], fetchTools);
+    expect(result).toEqual(["uuid-semgrep"]);
+  });
+
+  it("should error on ambiguous substring match", async () => {
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit called");
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(resolveToolUuids(["mark"], fetchTools)).rejects.toThrow(
+      "process.exit called",
+    );
+
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining("ambiguous"),
+    );
+
+    mockExit.mockRestore();
+    (console.error as any).mockRestore();
+  });
+
+  it("should error when tool is not found", async () => {
+    const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit called");
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(resolveToolUuids(["zzz"], fetchTools)).rejects.toThrow(
+      "process.exit called",
+    );
+
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining("not found"),
+    );
+
+    mockExit.mockRestore();
+    (console.error as any).mockRestore();
+  });
+
+  it("should handle mixed UUIDs and names, fetching tools only once", async () => {
+    const result = await resolveToolUuids(
+      ["a1b2c3d4-e5f6-7890-abcd-ef1234567890", "semgrep", "eslint"],
+      fetchTools,
+    );
+    expect(result).toEqual([
+      "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "uuid-semgrep",
+      "uuid-eslint",
+    ]);
+    expect(fetchTools).toHaveBeenCalledTimes(1);
   });
 });
