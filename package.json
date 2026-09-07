@@ -46,7 +46,7 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@codacy/tooling": "0.1.0",
+    "@codacy/tooling": "^0.22.0",
     "ansis": "4.0.0",
     "cli-table3": "^0.6.3",
     "commander": "14.0.0",

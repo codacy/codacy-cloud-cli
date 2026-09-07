@@ -35,6 +35,30 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Smoke test the built CLI
+        run: |
+          # Nothing in the test suite executes the entry point -- every command test
+          # builds a bare `new Command()` -- so this step is the only coverage of
+          # src/index.ts's top-level block, on every Node version we support.
+          node dist/index.js --version
+
+          # With proxy env set, the undici dispatcher is actually constructed (the
+          # run above returns early, since no proxy variable is set). `--version`
+          # makes no request, so the unreachable proxy is never dialed. This guards
+          # against a proxy dependency that fails to load or construct on Node 20.
+          HTTPS_PROXY=http://127.0.0.1:9 node dist/index.js --version
+
+          # A misconfigured CA bundle must fail loudly rather than silently fall
+          # back to the system trust store.
+          if out=$(SSL_CERT_FILE=/nonexistent/ca.pem node dist/index.js --version 2>&1); then
+            echo "::error::Expected a non-zero exit for an unreadable SSL_CERT_FILE"
+            exit 1
+          fi
+          case "$out" in
+            *"Failed to read CA certificate"*) ;;
+            *) echo "::error::Unexpected failure output: $out"; exit 1 ;;
+          esac
+
       - name: Test
         run: npm test
 

@@ -16,10 +16,11 @@
 
 Triggers on: push and pull requests to `main`.
 
-Matrix: Node.js 18, 20, 22.
+Matrix: Node.js 20, 22.
 
 Jobs:
-- **build-and-test**: checkout → setup node → install → generate API client → type check → build → test
+- **build-and-test**: checkout → setup node → install → generate API client → type check → build → smoke test the built CLI → test
+  - The smoke step runs `node dist/index.js --version` three ways (plain, with `HTTPS_PROXY` set, and with an unreadable `SSL_CERT_FILE` expected to fail). It is the only thing that executes the real entry point — every command test builds a bare `new Command()` — so it is what catches a dependency that loads or constructs fine on one Node version but not another.
 - **changeset-check** (PRs only): verifies at least one `.changeset/*.md` file is present in the PR diff
 
 ### Release (`release.yml`)

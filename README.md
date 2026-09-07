@@ -76,6 +76,31 @@ An explicit `--repository-token` wins outright, so a deliberately scoped run is 
 
 Passing `--repository-token` with an **empty** value is an error rather than a fallback. `--repository-token "$CODACY_PROJECT_TOKEN"` with the secret unset is a common CI mistake, and quietly falling back to an account token would run with much wider access than you asked for. An empty *environment variable*, by contrast, simply means "unset".
 
+## Proxy and TLS
+
+All outbound requests honor the standard proxy environment variables — set them once and every command routes accordingly.
+
+| Variable | Purpose |
+|---|---|
+| `HTTPS_PROXY` / `HTTP_PROXY` (or lowercase) | Proxy URL for HTTPS / HTTP requests. A bare `host:port` is treated as `http://` |
+| `NO_PROXY` / `no_proxy` | Comma-separated hosts that bypass the proxy (`*`, `.suffix`), matched per request |
+| `SSL_CERT_FILE` / `NODE_EXTRA_CA_CERTS` | PEM CA bundle to trust, e.g. for a corporate SSL-inspection proxy |
+| `CODACY_CLI_INSECURE` / `NODE_TLS_REJECT_UNAUTHORIZED=0` | Disable TLS verification (last resort; warns on stderr) |
+
+```bash
+export HTTPS_PROXY=http://proxy.corp:8080
+export NO_PROXY=app.codacy.com,.internal
+export SSL_CERT_FILE=/path/to/corporate-ca.pem   # prefer trusting the CA over disabling TLS
+```
+
+If your proxy performs TLS interception (MITM), trust its CA rather than disabling verification. Node doesn't read the OS trust store, so requests can fail with `unable to get local issuer certificate` even when `curl -x "$HTTPS_PROXY" https://app.codacy.com/api/v3/user` against the same host succeeds — curl working while the CLI doesn't is the tell-tale sign. Ask your IT team for the bundle, or export it from your OS trust store in PEM format.
+
+Note that `SSL_CERT_FILE` **replaces** the default trust store rather than adding to it, the same way curl's `--cacert` does, so the bundle must contain the full chain for every host you reach — including hosts that bypass the proxy via `NO_PROXY`. A misconfigured or unreadable bundle fails fast with a clear error instead of silently falling back.
+
+These variable names match the Codacy Analysis CLI and the Codacy VS Code extension, so one environment drives all of them.
+
+> The "update available" notice uses a separate network stack that does not honor these variables. Behind a strict proxy, disable it with `CODACY_DISABLE_UPDATE_CHECK=1`.
+
 ## Usage
 
 ```bash
@@ -144,7 +169,7 @@ npm run update-api       # Update the auto-generated API client
 
 ### CI/CD
 
-- **CI**: Runs on every push to `main` and on PRs. Builds and tests across Node.js 18, 20, and 22.
+- **CI**: Runs on every push to `main` and on PRs. Builds, smoke-tests the built CLI, and runs the test suite across Node.js 20 and 22.
 - **Release**: Uses [changesets](https://github.com/changesets/changesets) for automated versioning and npm publishing.
 
 #### Publishing a new version

@@ -5,6 +5,7 @@ import { cliVersion } from "./version";
 import { getOutputFormat } from "./utils/output";
 import { BASE_HEADERS, repositoryTokenOption } from "./utils/auth";
 import { maybeNotifyUpdate } from "./utils/update-check";
+import { configureProxyFromEnv } from "./utils/proxy";
 import { registerInfoCommand } from "./commands/info";
 import { registerRepositoriesCommand } from "./commands/repositories";
 import { registerRepositoryCommand } from "./commands/repository";
@@ -24,6 +25,14 @@ import { registerLoginCommand } from "./commands/login";
 import { registerLogoutCommand } from "./commands/logout";
 
 const program = new Command();
+
+// Route all outbound fetch traffic through HTTP(S)_PROXY / NO_PROXY and any
+// corporate CA before anything can make a request. Delegated to
+// `@codacy/tooling` so the environment contract is identical to the Codacy
+// Analysis CLI. No-op when no proxy or TLS variable is set. It only has to run
+// before `program.parse` — every request happens inside a command action — but
+// it goes first so the network stack is configured before we point it at the API.
+configureProxyFromEnv();
 
 OpenAPI.BASE = (process.env.CODACY_API_BASE_URL || "https://app.codacy.com").replace(/\/$/, "") + "/api/v3";
 // No token here. Which header carries it depends on the token kind, which isn't
