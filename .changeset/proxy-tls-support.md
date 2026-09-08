@@ -11,8 +11,8 @@ Every command now honors the standard environment variables:
 - `SSL_CERT_FILE` / `NODE_EXTRA_CA_CERTS` — PEM CA bundle for a TLS-intercepting proxy
 - `CODACY_CLI_INSECURE` — disable TLS verification as a last resort (warns on stderr)
 
-These are the same variable names the Codacy Analysis CLI and the Codacy VS Code extension use, so one environment configures all of them. The implementation is the shared `configureProxy()` from `@codacy/tooling` rather than a local reimplementation, which is what keeps the behavior identical across the tools. An unreadable or non-PEM CA bundle fails immediately with a clear error instead of silently falling back to the default trust store.
+These are the same variable names the Codacy Analysis CLI and the Codacy VS Code extension use, so one environment configures all of them. The implementation is the shared `configureProxy()` from `@codacy/tooling` rather than a local reimplementation, which is what keeps the behavior identical across the tools. Misconfiguration fails immediately rather than silently doing something else: an unreadable or non-PEM CA bundle reports the path instead of quietly falling back to the default trust store, and a malformed proxy URL reports which variable was wrong and why (with any proxy password redacted) instead of a bare `Invalid URL`.
 
-Behavior is unchanged when no proxy variable is set. Note that startup does get slightly slower either way — around 27ms — because the proxy dependency is loaded eagerly; a future dependency bump will reclaim that.
+Nothing changes when no proxy variable is set — the proxy dependency is loaded lazily, so an unproxied run has no measurable overhead.
 
 Thanks to @rattalur for reporting the gap and for the initial implementation in #39.

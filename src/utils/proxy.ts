@@ -19,13 +19,15 @@
  *   SSL_CERT_FILE / NODE_EXTRA_CA_CERTS    — PEM CA bundle to trust
  *   CODACY_CLI_INSECURE                    — disable TLS verification (warns)
  *
- * Behaviorally a no-op when none of those are set, so an unproxied run is
- * unaffected. It is not free, though: `@codacy/tooling@0.22.0` imports `undici`
- * at module scope rather than behind `configureProxy`'s early-out, so the cost
- * lands on every invocation, `--help` and `--version` included. Measured at
- * ~27 ms median against a ~119 ms baseline (20 interleaved runs, Node 20).
- * Upstream 0.23.0 moves that import behind a lazy factory; bumping to it is
- * tracked in `analysis-cli`'s `docs/tech-debt.md` and should reclaim it.
+ * A no-op when none of those are set — and a free one. `@codacy/tooling` loads
+ * `undici` lazily, only once `configureProxy` gets past its "nothing
+ * configured" early-out, so an unproxied run pays nothing: measured at 0 ms
+ * median against a `main` build (20 interleaved `--version` runs, Node 20).
+ * That property is upstream's to keep, and it is guarded there by
+ * `packages/tooling/test/proxy-lazy-undici.test.ts`. It is worth re-measuring
+ * on a major bump, since a top-level `undici` import upstream would silently
+ * put ~27 ms back onto every invocation, `--help` and `--version` included —
+ * which is what 0.22.0 did before this was fixed.
  *
  * Note the "update available" notice is unaffected: `update-notifier` uses its
  * own `got` stack, which honors neither this dispatcher nor the proxy variables.
@@ -41,11 +43,12 @@ import { handleError } from "./error";
  *
  * A misconfigured setting is **fatal by design**, and the catch is deliberately
  * broad rather than tied to a specific failure. `configureProxy` throws on an
- * unreadable or non-PEM CA bundle, and also on a malformed proxy URL — the
- * latter surfacing as whatever `new URL()` or undici's `ProxyAgent` raises,
- * which varies by version. Enumerating those here would just rot: this wrapper's
- * contract is "any failure to apply the requested configuration is fatal", and
- * upstream owns which failures exist.
+ * unreadable or non-PEM CA bundle and on a malformed proxy URL, and the exact
+ * set has already changed once across a minor bump. Enumerating it here would
+ * just rot: this wrapper's contract is "any failure to apply the requested
+ * configuration is fatal", and upstream owns which failures exist and how they
+ * read. Upstream also redacts credentials before echoing a bad proxy value, so
+ * passing the message straight through does not leak a proxy password.
  *
  * Unlike `maybeNotifyUpdate`, which swallows everything because an update check
  * must never break the CLI, swallowing here would leave the user running with
