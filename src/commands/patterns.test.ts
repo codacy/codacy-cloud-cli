@@ -186,6 +186,7 @@ describe("patterns command", () => {
       undefined,
       undefined,
       undefined,
+      undefined,
     );
 
     const output = getAllOutput();
@@ -295,6 +296,7 @@ describe("patterns command", () => {
       "sql injection",
       true,
       undefined,
+      undefined,
     );
   });
 
@@ -319,6 +321,7 @@ describe("patterns command", () => {
       "uuid-eslint",
       undefined,
       "Security,CodeStyle,ErrorProne",
+      undefined,
       undefined,
       undefined,
       undefined,
@@ -352,7 +355,67 @@ describe("patterns command", () => {
       undefined,
       undefined,
       true,
+      undefined,
     );
+  });
+
+  // `--matches-stack [value]` is a tri-state: the bare flag and an explicit
+  // `true` both opt in, `false` opts out, and omitting it sends nothing.
+  describe("--matches-stack", () => {
+    const expectMatchesStack = (value: boolean | undefined) =>
+      expect(AnalysisService.listRepositoryToolPatterns).toHaveBeenCalledWith(
+        "gh",
+        "test-org",
+        "test-repo",
+        "uuid-eslint",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        value,
+      );
+
+    const run = async (...extraArgs: string[]) => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node",
+        "test",
+        "patterns",
+        "gh",
+        "test-org",
+        "test-repo",
+        "eslint",
+        ...extraArgs,
+      ]);
+    };
+
+    it("sends matchesStack=true for the bare flag", async () => {
+      await run("--matches-stack");
+      expectMatchesStack(true);
+    });
+
+    it("sends matchesStack=true for --matches-stack true", async () => {
+      await run("--matches-stack", "true");
+      expectMatchesStack(true);
+    });
+
+    it("sends matchesStack=false for --matches-stack false", async () => {
+      await run("--matches-stack", "false");
+      expectMatchesStack(false);
+    });
+
+    it("sends nothing when the flag is omitted", async () => {
+      await run();
+      expectMatchesStack(undefined);
+    });
+
+    it("accepts the -k short flag", async () => {
+      await run("-k", "false");
+      expectMatchesStack(false);
+    });
   });
 
   it("should show ☑️ icon for patterns enforced by a coding standard", async () => {
@@ -593,6 +656,7 @@ describe("patterns command", () => {
         undefined,
         undefined,
         undefined,
+        undefined,
       );
       expect(AnalysisService.toolPatternsOverview).toHaveBeenCalledWith(
         "gh",
@@ -624,6 +688,7 @@ describe("patterns command", () => {
         "test-repo",
         "uuid-eslint",
         { enabled: false },
+        undefined,
         undefined,
         undefined,
         undefined,
@@ -671,6 +736,66 @@ describe("patterns command", () => {
         "security",
         "injection",
         true,
+        undefined,
+      );
+    });
+
+    // `matchesStack` is the 12th positional argument of
+    // updateRepositoryToolPatterns, so the bulk path filters on the stack too.
+    it("should pass --matches-stack to updateRepositoryToolPatterns", async () => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node",
+        "test",
+        "patterns",
+        "gh",
+        "test-org",
+        "test-repo",
+        "eslint",
+        "--enable-all",
+        "--matches-stack",
+        "false",
+      ]);
+
+      expect(
+        AnalysisService.updateRepositoryToolPatterns,
+      ).toHaveBeenCalledWith(
+        "gh",
+        "test-org",
+        "test-repo",
+        "uuid-eslint",
+        { enabled: true },
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        false,
+      );
+    });
+
+    it("should not scope the post-update overview to --matches-stack", async () => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node",
+        "test",
+        "patterns",
+        "gh",
+        "test-org",
+        "test-repo",
+        "eslint",
+        "--disable-all",
+        "--matches-stack",
+      ]);
+
+      // The summary counts ("N/M patterns now enabled") describe the whole
+      // tool, so the overview call deliberately carries no filters.
+      expect(AnalysisService.toolPatternsOverview).toHaveBeenCalledWith(
+        "gh",
+        "test-org",
+        "test-repo",
+        "uuid-eslint",
       );
     });
 
@@ -740,7 +865,7 @@ describe("patterns command", () => {
       expect(call[4]).toEqual({ enabled: true });
       // The enabled filter should not be passed to bulk update
       // updateRepositoryToolPatterns has no enabled query param
-      expect(call).toHaveLength(11);
+      expect(call).toHaveLength(12);
     });
   });
 
@@ -834,6 +959,7 @@ describe("patterns command", () => {
         "auto-org",
         "auto-repo",
         "uuid-eslint",
+        undefined,
         undefined,
         undefined,
         undefined,

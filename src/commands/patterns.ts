@@ -17,6 +17,7 @@ import {
   CONFIG_FILE_LOCKED_MESSAGE,
   PATTERN_JSON_FIELDS,
 } from "../utils/formatting";
+import { parseBooleanOption } from "../utils/options";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 import { ConfiguredPattern } from "../api/client/models/ConfiguredPattern";
 import { SeverityLevel } from "../api/client/models/SeverityLevel";
@@ -73,6 +74,7 @@ interface BulkUpdateArgs {
   tags?: string;
   search?: string;
   recommended?: boolean;
+  matchesStack?: boolean;
   spinner: ReturnType<typeof ora>;
 }
 
@@ -92,6 +94,7 @@ async function handleBulkUpdate(args: BulkUpdateArgs): Promise<void> {
     args.tags,
     args.search,
     args.recommended,
+    args.matchesStack,
   );
 
   const overview = await AnalysisService.toolPatternsOverview(
@@ -177,6 +180,11 @@ export function registerPatternsCommand(program: Command) {
     .option("-e, --enabled", "show only enabled patterns")
     .option("-D, --disabled", "show only disabled patterns")
     .option("-r, --recommended", "show only recommended patterns")
+    .option(
+      "-k, --matches-stack [value]",
+      "filter by whether patterns match the repository stack (true, false, or omit)",
+      parseBooleanOption,
+    )
     .option("-E, --enable-all", "bulk enable matching patterns")
     .option("-X, --disable-all", "bulk disable matching patterns")
     .addOption(repositoryTokenOption())
@@ -189,6 +197,8 @@ Examples:
   $ codacy-cloud-cli patterns gh my-org my-repo eslint --severities Critical,High
   $ codacy-cloud-cli patterns gh my-org my-repo eslint --enabled --categories Security
   $ codacy-cloud-cli patterns gh my-org my-repo eslint --search "sql injection" --recommended
+  $ codacy-cloud-cli patterns gh my-org my-repo eslint --matches-stack          # only patterns matching the repo stack
+  $ codacy-cloud-cli patterns gh my-org my-repo eslint --matches-stack false    # only patterns that don't
   $ codacy-cloud-cli patterns gh my-org my-repo eslint --enable-all --categories Security
   $ codacy-cloud-cli patterns gh my-org my-repo eslint --disable-all --severities Minor`,
     )
@@ -252,6 +262,14 @@ Examples:
 
         const { severities, categories } = parseFilters(opts);
 
+        // Tri-state: `--matches-stack`/`--matches-stack true` sends true,
+        // `--matches-stack false` sends false, and omitting it sends nothing.
+        // Read explicitly rather than by truthiness so an explicit `false`
+        // stays distinct from "not requested".
+        let matchesStackFilter: boolean | undefined;
+        if (opts.matchesStack === true) matchesStackFilter = true;
+        else if (opts.matchesStack === false) matchesStackFilter = false;
+
         if (opts.enableAll || opts.disableAll) {
           await handleBulkUpdate({
             provider,
@@ -266,6 +284,7 @@ Examples:
             tags: opts.tags,
             search: opts.search,
             recommended: opts.recommended ? true : undefined,
+            matchesStack: matchesStackFilter,
             spinner,
           });
           return;
@@ -289,6 +308,7 @@ Examples:
           opts.search,
           enabledFilter,
           opts.recommended ? true : undefined,
+          matchesStackFilter,
         );
         spinner.stop();
 

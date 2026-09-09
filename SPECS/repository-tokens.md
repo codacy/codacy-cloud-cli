@@ -45,8 +45,26 @@ depends on it). Both flag and env values are trimmed.
 > hardcode it; if the backend adds an operation, a guard here will still refuse
 > it. Source: Linear project *"Project token works in selected API v3
 > (+expiration)"*.
+>
+> **Last verified against API `57.4.17`** (2026-09-09). Since `57.4.x` the spec
+> declares the `ProjectTokenAuth` security scheme (`project-token` header) on
+> each supported operation, so the whitelist is now machine-checkable:
+>
+> ```bash
+> python3 -c "
+> import re
+> cur=None; out=[]
+> for l in open('api-v3/api-swagger.yaml'):
+>     m=re.match(r'\s*operationId:\s*(\S+)', l)
+>     if m: cur=m.group(1)
+>     if 'ProjectTokenAuth' in l and cur and cur not in out: out.append(cur)
+> print(len(out)); print('\n'.join(sorted(out)))"
+> ```
+>
+> On `57.3.9` (the previously pinned build) the scheme was not declared
+> anywhere, which is why this table was maintained by hand.
 
-Codacy accepts a repository token on **exactly** these 13 operations. Everywhere
+Codacy accepts a repository token on **exactly** these 14 operations. Everywhere
 else it is rejected as if no token had been sent.
 
 | operationId | Method | Used by this CLI |
@@ -64,6 +82,7 @@ else it is rejected as if no token had been sent.
 | `getRepositoryLanguages` | GET | — |
 | `getRepository` | GET | — |
 | `listIgnoredFiles` | GET | — |
+| `searchAiInventoryCategories` | POST | — |
 
 `ToolsService.listTools` / `listPatterns` / `getPattern` are declared
 `security: []` in the spec — unauthenticated, so they work with any token or
