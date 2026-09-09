@@ -87,6 +87,7 @@ codacy-cloud-cli/
   - Default cadence is `POLL_INTERVAL_MS` (10s), capped at `MAX_WAIT_MS` (20min).
 - **Error handling:** Use `try/catch` with the shared `handleError()` from `src/utils/error.ts`
 - **API base URL:** `https://app.codacy.com/api/v3` (configured in `src/index.ts` via `OpenAPI.BASE`)
+- **Proxy / TLS:** never hand-roll this. Outbound HTTP configuration is delegated to `configureProxy()` from `@codacy/tooling`, wrapped by `configureProxyFromEnv()` in `src/utils/proxy.ts` and called once at the top of `src/index.ts`. It installs a global `undici` dispatcher, so every `fetch` — the generated client and the CVE lookup alike — is covered without touching generated code. Keeping the implementation upstream is what keeps the environment contract identical to the Codacy Analysis CLI; a local reimplementation would drift. If proxy behavior needs to change, change it in `analysis-cli`'s `packages/tooling/src/proxy.ts` and bump the dependency here.
 - **Authentication — two token kinds.** Read `SPECS/repository-tokens.md` before touching auth or adding a command.
   - An **account token** (`api-token` header) reaches everything its owner can see.
   - A **repository token** (`project-token` header) is scoped to one repository. It is accepted only on a fixed whitelist of 13 operations; everywhere else Codacy rejects it as if no token had been sent.
@@ -240,6 +241,11 @@ When completing work, agents **must** update relevant documentation:
 |---|---|---|
 | `CODACY_API_TOKEN` | One of the two | Account API token. Get it from Codacy > Account > API Tokens |
 | `CODACY_PROJECT_TOKEN` | One of the two | Repository (project) token, scoped to one repository. Get it from Codacy > Repository > Settings > Integrations > Project API token. **Outranks `CODACY_API_TOKEN`** — see `SPECS/repository-tokens.md` |
+| `HTTPS_PROXY` / `HTTP_PROXY` | No | Proxy URL per scheme (lowercase also honored). Resolved by `@codacy/tooling`'s `configureProxy()`, called once from `src/index.ts` via `configureProxyFromEnv()` |
+| `NO_PROXY` / `no_proxy` | No | Comma-separated hosts that bypass the proxy (`*`, `.suffix`), matched **per request** — not once at startup |
+| `SSL_CERT_FILE` / `NODE_EXTRA_CA_CERTS` | No | PEM CA bundle for a TLS-intercepting proxy. **Replaces** the default trust store; unreadable or non-PEM is fatal by design |
+| `CODACY_CLI_INSECURE` | No | Disable TLS verification (also `NODE_TLS_REJECT_UNAUTHORIZED=0`). Last resort; warns on stderr |
+| `CODACY_DISABLE_UPDATE_CHECK` | No | Disable the "update available" notice. Its `got` stack ignores the proxy variables above, so this is the escape hatch behind a strict proxy |
 
 ## Useful Context
 
