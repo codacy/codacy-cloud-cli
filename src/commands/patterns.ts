@@ -17,7 +17,7 @@ import {
   CONFIG_FILE_LOCKED_MESSAGE,
   PATTERN_JSON_FIELDS,
 } from "../utils/formatting";
-import { parseBooleanOption } from "../utils/options";
+import { strictBooleanOption } from "../utils/options";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 import { ConfiguredPattern } from "../api/client/models/ConfiguredPattern";
 import { SeverityLevel } from "../api/client/models/SeverityLevel";
@@ -183,7 +183,7 @@ export function registerPatternsCommand(program: Command) {
     .option(
       "-k, --matches-stack [value]",
       "filter by whether patterns match the repository stack (true, false, or omit)",
-      parseBooleanOption,
+      strictBooleanOption("--matches-stack"),
     )
     .option("-E, --enable-all", "bulk enable matching patterns")
     .option("-X, --disable-all", "bulk disable matching patterns")
@@ -262,13 +262,11 @@ Examples:
 
         const { severities, categories } = parseFilters(opts);
 
-        // Tri-state: `--matches-stack`/`--matches-stack true` sends true,
-        // `--matches-stack false` sends false, and omitting it sends nothing.
-        // Read explicitly rather than by truthiness so an explicit `false`
-        // stays distinct from "not requested".
-        let matchesStackFilter: boolean | undefined;
-        if (opts.matchesStack === true) matchesStackFilter = true;
-        else if (opts.matchesStack === false) matchesStackFilter = false;
+        // Already a tri-state: Commander supplies `true` for the bare flag,
+        // strictBooleanOption returns a boolean for an explicit value, and the
+        // key is absent when the flag is omitted. Passed through as-is so an
+        // explicit `false` stays distinct from "not requested".
+        const matchesStackFilter: boolean | undefined = opts.matchesStack;
 
         if (opts.enableAll || opts.disableAll) {
           await handleBulkUpdate({
