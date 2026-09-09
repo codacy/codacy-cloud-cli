@@ -20,3 +20,5 @@ codacy patterns eslint9 --disable-all --matches-stack false
 ```
 
 The summary printed after a bulk update still reports counts for the whole tool, not just the updated subset.
+
+Only `true` and `false` are accepted as values. Because Commander's optional-value syntax consumes the next token, a lax parser would let `codacy patterns gh org repo --matches-stack eslint` silently swallow the tool name and then fail with a confusing positional-count error; the flag now rejects non-boolean values with a message that says what to do instead.

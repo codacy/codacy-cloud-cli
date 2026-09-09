@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { parseBooleanOption } from "./options";
+import { InvalidArgumentError } from "commander";
+import { parseBooleanOption, strictBooleanOption } from "./options";
 
 describe("parseBooleanOption", () => {
   it('coerces "true" to true', () => {
@@ -22,5 +23,32 @@ describe("parseBooleanOption", () => {
     expect(parseBooleanOption("yes")).toBe(true);
     expect(parseBooleanOption("1")).toBe(true);
     expect(parseBooleanOption("")).toBe(true);
+  });
+});
+
+describe("strictBooleanOption", () => {
+  const parse = strictBooleanOption("--matches-stack");
+
+  it('accepts "true" and "false"', () => {
+    expect(parse("true")).toBe(true);
+    expect(parse("false")).toBe(false);
+  });
+
+  it("is case-insensitive", () => {
+    expect(parse("TRUE")).toBe(true);
+    expect(parse("False")).toBe(false);
+  });
+
+  it("rejects anything else", () => {
+    // Commander's optional-value syntax would otherwise swallow a positional
+    // argument as this option's value; rejecting it surfaces the mistake.
+    expect(() => parse("eslint")).toThrow(InvalidArgumentError);
+    expect(() => parse("")).toThrow(InvalidArgumentError);
+  });
+
+  it("names the flag and the offending value in the error", () => {
+    expect(() => parse("eslint")).toThrow(/expected "true" or "false"/);
+    expect(() => parse("eslint")).toThrow(/"eslint"/);
+    expect(() => parse("eslint")).toThrow(/--matches-stack/);
   });
 });
