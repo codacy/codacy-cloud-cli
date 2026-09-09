@@ -110,6 +110,8 @@ overwritten and the API can't list or change them:
 codacy patterns <provider> <organization> <repository> <toolName>
 codacy patterns gh my-org my-repo eslint --severities Critical,High --enabled
 codacy patterns gh my-org my-repo eslint --output json
+codacy patterns gh my-org my-repo eslint --matches-stack
+codacy patterns gh my-org my-repo eslint --matches-stack false
 codacy patterns gh my-org my-repo eslint --enable-all --categories Security
 codacy patterns gh my-org my-repo eslint --disable-all --severities Minor
 ```
@@ -126,6 +128,7 @@ codacy patterns gh my-org my-repo eslint --disable-all --severities Minor
 | `--enabled` | `-e` | Show only enabled patterns (list mode only) |
 | `--disabled` | `-D` | Show only disabled patterns (list mode only) |
 | `--recommended` | `-r` | Show only recommended patterns |
+| `--matches-stack [value]` | `-k` | Filter by whether patterns match the repository stack. Tri-state: the bare flag or `true` sends `matchesStack=true`, `false` sends `matchesStack=false`, omitting it sends nothing |
 | `--enable-all` | `-E` | Bulk enable matching patterns |
 | `--disable-all` | `-X` | Bulk disable matching patterns |
 
@@ -160,16 +163,18 @@ Shows pagination warning if more than 100 results exist.
 
 ### Bulk update mode (`--enable-all` / `--disable-all`)
 
-Enables or disables all patterns matching the applied filters (languages, categories, severities, tags, search, recommended). The `--enabled`/`--disabled` filter is not used in bulk update mode since it would be redundant. `--enable-all` and `--disable-all` are mutually exclusive.
+Enables or disables all patterns matching the applied filters (languages, categories, severities, tags, search, recommended, matches-stack). The `--enabled`/`--disabled` filter is not used in bulk update mode since it would be redundant. `--enable-all` and `--disable-all` are mutually exclusive.
 
-After the update, fetches the tool patterns overview and shows a summary:
+After the update, fetches the tool patterns overview and shows a summary. The
+overview call deliberately carries **no** filters — including `--matches-stack`
+— because the counts describe the whole tool, not the updated subset:
 ```
 ✔ Enabled matching ESLint patterns. 120/200 patterns now enabled.
 ```
 
 ## Tests
 
-File: `src/commands/patterns.test.ts` — 27 tests.
+File: `src/commands/patterns.test.ts` — 35 tests.
 
 ---
 

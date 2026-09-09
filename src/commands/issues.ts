@@ -24,6 +24,7 @@ import {
   formatCount,
 } from "../utils/formatting";
 import { sanitizeText } from "../utils/sanitize";
+import { parseBooleanOption } from "../utils/options";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 import { ToolsService } from "../api/client/services/ToolsService";
 import { Tool } from "../api/client/models/Tool";
@@ -138,10 +139,6 @@ function normalizeSeverity(input: string): SeverityLevel {
 function normalizeCategory(input: string): string {
   const key = input.toLowerCase().replace(/[\s_-]/g, "");
   return CATEGORY_NORMALIZE[key] ?? input;
-}
-
-function parseBooleanOption(value: string): boolean {
-  return value.toLowerCase() !== "false";
 }
 
 function printIssuesList(issues: CommitIssue[], total: number): void {
