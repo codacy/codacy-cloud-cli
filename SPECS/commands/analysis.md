@@ -80,33 +80,74 @@ Analysis       Finished 12h ago (c00e638) — Reanalysis in progress...
 Analysis       In progress... (c00e638)
 ```
 
-- Analysis finished, waiting for coverage (within 3h):
+- Analysis finished, no coverage report for the latest commit yet
+  (`coverage.status === "Waiting"`):
 ```
 Analysis       Finished 12h ago (c00e638) — Waiting for coverage reports...
 ```
 
-- Analysis finished, coverage overdue (>3h):
+- Analysis finished, coverage reports stopped arriving
+  (`coverage.status === "Stopped"`):
 ```
-Analysis       Finished 12h ago (c00e638) — Missing coverage reports
+Analysis       Finished 12h ago (c00e638) — Stopped receiving coverage reports
 ```
 
-- Normal finished state:
+- Normal finished state (`UpToDate`, `None`, or no status at all):
 ```
 Analysis       Finished 12h ago (c00e638)
 ```
 
-"In progress..." and "Reanalysis in progress..." are colored light blue. "Missing coverage reports" is yellow.
+"In progress...", "Reanalysis in progress..." and "Waiting for coverage
+reports..." are colored light blue. "Stopped receiving coverage reports" (and
+the pull-request-only "Missing coverage reports") are yellow.
+
+The row deliberately stays short: the Metrics section's Coverage row carries the
+same state with its dates and commit, so the dashboard states it at two
+altitudes rather than saying the same sentence twice. See
+[repository.md](repository.md).
 
 ### `pull-request` command — About section
 
-Same "Analysis" row replaces the former "Head Commit" row, with the same status logic applied to the PR's HEAD commit.
+Same "Analysis" row replaces the former "Head Commit" row, with the same status
+logic applied to the PR's HEAD commit — except for the coverage state, which
+still comes from the heuristic below. `PullRequestCoverage`/`DiffCoverage` carry
+no `status` field, so there is nothing authoritative to read. This is the only
+remaining caller of the heuristic, and the only reason it still exists.
+
+- Coverage expected, none yet (within 3h): `— Waiting for coverage reports...`
+- Coverage expected, overdue (>3h): `— Missing coverage reports`
 
 ## Analysis Status Logic
 
 - **Being analyzed**: `startedAnalysis` is set AND (`endedAnalysis` is absent OR `startedAnalysis > endedAnalysis`)
-- **Coverage expected**: determined by `listCoverageReports(limit=1).data.hasCoverageOverview`
-- **Coverage data present**: `diffCoverage.value !== undefined OR deltaCoverage !== undefined` (PR); `coveragePercentage !== undefined` (repo)
-- **Wait threshold**: 3 hours from `endedAnalysis`
+
+The coverage half is decided by `coverageAnalysisSuffix()`, which has two
+sources in priority order:
+
+1. **`coverageStatus`** — the API's own `Coverage.status`, available on the
+   repository endpoints (`getRepositoryWithAnalysis`). Authoritative, so it wins
+   outright: `Waiting` and `Stopped` each get their line, `UpToDate`/`None` get
+   nothing. Used by `repository`.
+2. **The heuristic** — "a coverage overview exists but this commit has no
+   coverage number", with a 3-hour grace period from `endedAnalysis`:
+   - **Coverage expected**: `listCoverageReports(limit=1).data.hasCoverageOverview`
+   - **Coverage data present**: `diffCoverage.value !== undefined OR deltaCoverage !== undefined`
+   - **Wait threshold**: 3 hours from `endedAnalysis`
+
+   Only `pull-request` still needs it (see above).
+
+**Why (1) exists.** The heuristic is *wrong* for `Waiting`: a waiting repository
+still reports a percentage — a stale one, from `lastCommitWithCoverage` — so
+"coverage data present" is true and the heuristic reads the repository as
+healthy, leaving the row silent in exactly the case worth surfacing. It was also
+vaguer than necessary for `Stopped` ("Missing coverage reports"), and could never
+work under a repository token at all, since `listCoverageReports` is not
+whitelisted while `getRepositoryWithAnalysis` is.
+
+**Accepted trade-off.** When `status` is `undefined` — which a substantial share
+of repositories return — `repository` now shows no coverage hint, where the
+heuristic might have said "Missing coverage reports". That is the honest reading
+of an absent status.
 
 Implemented in `formatAnalysisStatus()` in `src/utils/formatting.ts`.
 
@@ -115,7 +156,7 @@ Implemented in `formatAnalysisStatus()` in `src/utils/formatting.ts`.
 - [`reanalyzeCommitById`](https://api.codacy.com/api/api-docs#reanalyzecommitbyid) — `RepositoryService.reanalyzeCommitById(provider, org, repo, { commitUuid: sha })`
 - [`getPullRequestCommits`](https://api.codacy.com/api/api-docs#getpullrequestcommits) with `limit=1` — head commit timing for PR
 - [`listRepositoryCommits`](https://api.codacy.com/api/api-docs#listrepositorycommits) with `limit=1` — head commit timing for repo
-- [`listCoverageReports`](https://api.codacy.com/api/api-docs#listcoveragereports) with `limit=1` — check `hasCoverageOverview`
+- [`listCoverageReports`](https://api.codacy.com/api/api-docs#listcoveragereports) with `limit=1` — check `hasCoverageOverview`. **`pull-request` only** — `repository` dropped this call when `coverage.status` superseded it
 
 Additionally used by `--reanalyze-and-wait`:
 - `listRepositoryCommits` (`limit=1`) — repo first-commit analysis timestamps, polled for status
@@ -133,10 +174,11 @@ Additionally used by `--reanalyze-and-wait`:
 - [x] Update existing tests for the status sections
 - [x] Add tests for the new `--reanalyze` option
 - [x] Add `--reanalyze-and-wait` (`-w`) blocking variant to both commands (2026-06-02)
+- [x] Drive `repository`'s coverage state from `Coverage.status` instead of the `listCoverageReports` heuristic (2026-09-10)
 
 ## Tests
 
-- `src/utils/formatting.test.ts` — 6 unit tests for `formatAnalysisStatus`; + `formatDuration` and `isBeingAnalyzed` tests
+- `src/utils/formatting.test.ts` — 11 unit tests for `formatAnalysisStatus` (6 for the heuristic, 5 for the authoritative `coverageStatus`, including the Waiting-with-a-stale-percentage case the heuristic got wrong); + `formatDuration` and `isBeingAnalyzed` tests
 - `src/commands/repository.test.ts` — 4 tests (analysis status, reanalyze) + 3 for `--reanalyze-and-wait`
 - `src/commands/pull-request.test.ts` — 3 tests (analysis status, reanalyze) + 3 for `--reanalyze-and-wait`
 - `src/utils/reanalyze-wait.test.ts` — 12 unit tests (snapshots, diff, poll loop incl. timeout, render, json)

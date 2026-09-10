@@ -28,6 +28,7 @@ import {
   colorByGate,
   formatDelta,
   formatPrCoverage,
+  formatRepoCoverageDetail,
   formatPrIssues,
   formatAnalysisStatus,
   prQualityMetric,
@@ -53,8 +54,6 @@ import { Count } from "../api/client/models/Count";
 function printAbout(
   data: RepositoryWithAnalysis,
   headCommit: Commit | null,
-  expectsCoverage: boolean,
-  hasCoverageData: boolean,
 ): void {
   printSection("About");
   const repo = data.repository;
@@ -80,8 +79,10 @@ function printAbout(
         commitSha: commit.sha,
         startedAnalysis: commit.startedAnalysis,
         endedAnalysis: commit.endedAnalysis,
-        expectsCoverage,
-        hasCoverageData,
+        // The API's own coverage state, so no heuristic is needed here — see
+        // `formatAnalysisStatus`. The Metrics section spells the same state
+        // out with its dates and commit; this row just names it.
+        coverageStatus: data.coverage?.status,
       }),
     });
   } else {
@@ -131,10 +132,9 @@ function printMetrics(data: RepositoryWithAnalysis): void {
   }
   table.push({ Issues: `${issuesDisplay} (${issuesKloc} / kLoC)` });
   table.push({
-    Coverage: colorMetric(
-      data.coverage?.coveragePercentage,
+    Coverage: formatRepoCoverageDetail(
+      data.coverage,
       goals?.minCoveragePercentage,
-      "min",
     ),
   });
   table.push({
@@ -163,10 +163,6 @@ function printMetrics(data: RepositoryWithAnalysis): void {
  */
 function noPullRequests(): { data: PullRequestWithAnalysis[]; pagination: undefined } {
   return { data: [], pagination: undefined };
-}
-
-function noCoverageReports(): { data: { hasCoverageOverview: boolean } } {
-  return { data: { hasCoverageOverview: false } };
 }
 
 function printPullRequests(pullRequests: PullRequestWithAnalysis[]): void {
@@ -532,14 +528,13 @@ Examples:
         const format = getOutputFormat(this);
         const spinner = ora("Fetching repository details...").start();
 
-        // Pull requests and coverage reports are outside a repository token's
-        // scope — Codacy rejects them as if no token had been sent. Skip the
-        // requests rather than firing two we know will fail, and keep .catch()
-        // on the pull request call so an account token that lacks access
-        // degrades the same way instead of losing the whole dashboard (its three
-        // sibling calls were already guarded).
+        // Pull requests are outside a repository token's scope — Codacy
+        // rejects them as if no token had been sent. Skip the request rather
+        // than firing one we know will fail, and keep .catch() on it so an
+        // account token that lacks access degrades the same way instead of
+        // losing the whole dashboard (its siblings were already guarded).
         let prsUnavailable = auth.kind !== "account-token";
-        const [repoResponse, prsResponse, issuesResponse, commitsResponse, coverageReportsResponse] = await Promise.all([
+        const [repoResponse, prsResponse, issuesResponse, commitsResponse] = await Promise.all([
           AnalysisService.getRepositoryWithAnalysis(
             provider,
             organization,
@@ -564,14 +559,6 @@ Examples:
             undefined,
             1,
           ).catch(() => ({ data: [] })),
-          fetchIfAccountToken(auth, noCoverageReports(), () =>
-            RepositoryService.listCoverageReports(
-              provider,
-              organization,
-              repository,
-              1,
-            ).catch(() => noCoverageReports()),
-          ),
         ]);
 
         spinner.stop();
@@ -580,15 +567,8 @@ Examples:
         const pullRequests = prsResponse.data;
         const issuesCounts = issuesResponse.data.counts;
         const headCommit = (commitsResponse as any).data[0]?.commit ?? null;
-        const expectsCoverage = !!(coverageReportsResponse as any).data?.hasCoverageOverview;
-        const hasCoverageData = data.coverage?.coveragePercentage !== undefined;
 
-        const unavailableSections = [
-          ...(prsUnavailable ? ["pullRequests"] : []),
-          // Only skipped, never merely failed — listCoverageReports is guarded
-          // by fetchIfAccountToken alone.
-          ...(auth.kind === "account-token" ? [] : ["coverageReports"]),
-        ];
+        const unavailableSections = prsUnavailable ? ["pullRequests"] : [];
 
         if (format === "json") {
           printJson(pickDeep({
@@ -600,12 +580,6 @@ Examples:
             // and `| length` keep working. `unavailable` is what distinguishes
             // "no open pull requests" from "couldn't look"; pickDeep drops
             // undefined, so it stays absent whenever the data is real.
-            //
-            // Coverage reports are listed too even though no coverage key is
-            // projected: skipping them forces `expectsCoverage` false, which
-            // silently suppresses the "missing/waiting for coverage reports"
-            // state. Without this a repo that *is* configured for coverage but
-            // has uploaded none is indistinguishable from a healthy one.
             pullRequests,
             issuesOverview: issuesCounts,
             unavailable: unavailableSections.length ? unavailableSections : undefined,
@@ -630,6 +604,10 @@ Examples:
             "repository.loc",
             "repository.fileCount",
             "repository.coverage.coveragePercentage",
+            "repository.coverage.status",
+            "repository.coverage.lastCommitWithCoverage",
+            "repository.coverage.statusUpdatedAt",
+            "repository.coverage.valueUpdatedAt",
             "repository.complexFilesPercentage",
             "repository.duplicationPercentage",
             "repository.goals",
@@ -643,7 +621,7 @@ Examples:
           return;
         }
 
-        printAbout(data, headCommit, expectsCoverage, hasCoverageData);
+        printAbout(data, headCommit);
         printSetup(data);
         printMetrics(data);
         if (prsUnavailable) {

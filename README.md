@@ -61,7 +61,7 @@ Codacy accepts repository tokens on a **limited set of repository-scoped operati
 | `repository`, `repository --reanalyze` | `repository --add`/`--remove`/`--follow`/`--unfollow`/`--link-standard`/`--unlink-standard` |
 | | `pull-request`, `pull-requests`, `ls`, `directories`, `findings`, `finding` |
 
-`codacy repository` works, but omits the pull request and coverage-report sections — those endpoints don't accept repository tokens. In `--output json` it marks them as `"unavailable": ["pullRequests", "coverageReports"]`, so a consumer can tell "none" apart from "couldn't look". Note that skipping coverage reports also suppresses the "waiting for / missing coverage reports" hint on the Analysis row.
+`codacy repository` works, but omits the pull request section — that endpoint doesn't accept repository tokens. In `--output json` it marks it as `"unavailable": ["pullRequests"]`, so a consumer can tell "none" apart from "couldn't look". Everything else, including the coverage status, is available.
 
 `codacy login` stores account tokens only; pass repository tokens per command or via `CODACY_PROJECT_TOKEN`.
 
