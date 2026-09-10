@@ -272,6 +272,11 @@ Keeps the two command handlers thin: they only supply the API-specific callbacks
   (`vi.spyOn(timers, "sleep").mockResolvedValue()`) for instant polling. Drive the
   poll loop in command tests with sequential `mockResolvedValueOnce` status values;
   use the optional `now` injection in `pollForAnalysis` to unit-test the timeout.
+- **Non-TTY progress**: ora's spinner text never reaches a piped/non-interactive
+  stderr, so silent CI/agent shells (e.g. Gemini CLI) can kill the process as
+  hung. When `!process.stderr.isTTY` (injectable via `opts.isTTY`), the loop
+  writes `elapsed <N>m, status=<waiting|inProgress>` to stderr every
+  `PROGRESS_INTERVAL_MS` (60s) instead. TTY output is unchanged.
 - **Rendering**: `renderReanalyzeReport(delta, durationMs)` prints the
   `Analysis finished in <duration>` headline + By pattern / By severity /
   By category lists (pattern rows soft-capped at `PATTERN_LIMIT=20`) + an
