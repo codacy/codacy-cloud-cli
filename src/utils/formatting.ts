@@ -465,16 +465,29 @@ export function colorMetric(
 const COVERAGE_WAITING_GLYPH = "⋯";
 const COVERAGE_STOPPED_GLYPH = "⊘";
 
+/**
+ * Which statuses carry a marker, and which glyph. **Exhaustive over
+ * `CoverageStatus` on purpose:** a new member arriving from
+ * `npm run update-api` fails to compile *here*, rather than silently rendering
+ * as "nothing to flag" in every renderer below. `coverageStatusNote` and
+ * `coverageAnalysisSuffix` keep their own switches — their prose differs too
+ * much per state to share a table — so this is the single place a widened
+ * union surfaces. Start from here when one does.
+ */
+const COVERAGE_STATUS_GLYPH: Record<CoverageStatus, string | null> = {
+  UpToDate: null,
+  Waiting: COVERAGE_WAITING_GLYPH,
+  Stopped: COVERAGE_STOPPED_GLYPH,
+  None: null,
+};
+
 /** Dim table glyph for a coverage status, or undefined when there's nothing to flag. */
 export function coverageStatusGlyph(coverage?: Coverage): string | undefined {
-  switch (coverage?.status) {
-    case "Waiting":
-      return ansis.dim(COVERAGE_WAITING_GLYPH);
-    case "Stopped":
-      return ansis.dim(COVERAGE_STOPPED_GLYPH);
-    default:
-      return undefined; // UpToDate | None | undefined
-  }
+  // Indexing with a status the table doesn't know (a value from a newer API
+  // than this build) yields undefined, so an unrecognized state degrades to
+  // "no marker" rather than throwing.
+  const glyph = coverage?.status && COVERAGE_STATUS_GLYPH[coverage.status];
+  return glyph ? ansis.dim(glyph) : undefined;
 }
 
 /**
@@ -491,9 +504,20 @@ export function formatRepoCoverageCell(
   threshold: number | undefined,
 ): string {
   const glyph = coverageStatusGlyph(coverage);
-  if (coverage?.status === "Stopped") return glyph!;
+  // `&& glyph` rather than a non-null assertion: were the marker ever to go
+  // missing, falling through prints the ordinary "N/A" instead of the literal
+  // string "undefined".
+  if (coverage?.status === "Stopped" && glyph) return glyph;
   const value = colorMetric(coverage?.coveragePercentage, threshold, "min");
   return glyph ? `${value} ${glyph}` : value;
+}
+
+/** Whether a coverage payload actually carries a percentage to render. */
+function hasCoverageValue(coverage: Coverage | undefined): boolean {
+  return (
+    coverage?.coveragePercentage !== undefined &&
+    coverage?.coveragePercentage !== null
+  );
 }
 
 /**
@@ -504,12 +528,19 @@ export function formatRepoCoverageCell(
 export function coverageStatusLegend(
   coverages: Array<Coverage | undefined>,
 ): string[] {
+  const waiting = coverages.filter((c) => c?.status === "Waiting");
   const present = new Set(coverages.map((c) => c?.status));
   const lines: string[] = [];
-  if (present.has("Waiting")) {
+  if (waiting.length > 0) {
+    // A `Waiting` payload normally carries a stale percentage from
+    // `lastCommitWithCoverage`, but the field is documented as present only for
+    // the latest commit — so only claim a last known value when one is
+    // actually rendered, instead of explaining a number that isn't there.
+    const showsValue = waiting.some((c) => hasCoverageValue(c));
+    const suffix = showsValue ? " — showing the last known value" : "";
     lines.push(
       ansis.dim(
-        `${COVERAGE_WAITING_GLYPH} no coverage report for the latest commit yet — showing the last known value`,
+        `${COVERAGE_WAITING_GLYPH} no coverage report for the latest commit yet${suffix}`,
       ),
     );
   }
@@ -548,9 +579,12 @@ export function coverageStatusNote(
       const commit = coverage.lastCommitWithCoverage
         ? ` (${shortSha(coverage.lastCommitWithCoverage)})`
         : "";
-      const from = coverage.valueUpdatedAt
-        ? ` — value from ${formatFriendlyDate(coverage.valueUpdatedAt)}${commit}`
-        : "";
+      // Gated on the percentage as well as the timestamp: with no value on
+      // screen, "value from ..." would describe something the row never shows.
+      const from =
+        hasCoverageValue(coverage) && coverage.valueUpdatedAt
+          ? ` — value from ${formatFriendlyDate(coverage.valueUpdatedAt)}${commit}`
+          : "";
       return ansis.blueBright(`Not reported yet for the latest commit${from}`);
     }
     case "Stopped": {
@@ -588,8 +622,13 @@ export function formatRepoCoverageDetail(
   });
   // `Stopped` carries no percentage and `None` never had one; in both cases the
   // note says strictly more than a bare "N/A" would.
-  if (coverage?.status === "Stopped" || coverage?.status === "None") {
-    return note!;
+  // `&& note` for the same reason as the cell's `&& glyph`: degrade to the
+  // ordinary metric rather than risk printing the string "undefined".
+  if (
+    (coverage?.status === "Stopped" || coverage?.status === "None") &&
+    note
+  ) {
+    return note;
   }
   const value = colorMetric(coverage?.coveragePercentage, threshold, "min");
   return note ? `${value}  ${note}` : value;

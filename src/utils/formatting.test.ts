@@ -620,6 +620,16 @@ const covStopped = {
 };
 const covNone = { status: "None" as const };
 const covNoStatus = { coveragePercentage: 85 };
+// `Waiting` with nothing to show. Observed payloads always carry a stale
+// percentage, but `coveragePercentage` is documented as present only for the
+// latest commit — which a waiting repository by definition doesn't have — so
+// the renderers must not promise a value they aren't showing.
+const covWaitingNoValue = {
+  status: "Waiting" as const,
+  lastCommitWithCoverage: "5474cbf195db8f6fb0704d2bc9a8dc4e16065dc9",
+  statusUpdatedAt: "2026-09-10T10:44:04.440743Z",
+  valueUpdatedAt: "2026-09-10T01:13:16.102431Z",
+};
 
 describe("coverageStatusGlyph", () => {
   it("marks only the two states worth flagging", () => {
@@ -692,6 +702,23 @@ describe("coverageStatusLegend", () => {
     expect(stoppedOnly[0]).toContain("⊘");
   });
 
+  it("promises a last known value only when one is actually shown", () => {
+    // The legend explains the marker in the cell next to it; with no
+    // percentage rendered, "showing the last known value" would be a lie.
+    const withValue = coverageStatusLegend([covWaiting]);
+    expect(withValue[0]).toContain("showing the last known value");
+
+    const withoutValue = coverageStatusLegend([covWaitingNoValue]);
+    expect(withoutValue).toHaveLength(1);
+    expect(withoutValue[0]).toContain("no coverage report for the latest commit");
+    expect(withoutValue[0]).not.toContain("last known value");
+
+    // One repository in the listing having a value is enough to warrant it.
+    expect(
+      coverageStatusLegend([covWaitingNoValue, covWaiting])[0],
+    ).toContain("showing the last known value");
+  });
+
   it("deduplicates across a mixed listing", () => {
     const legend = coverageStatusLegend([
       covUpToDate, covWaiting, covStopped, covWaiting, covNone,
@@ -712,6 +739,14 @@ describe("coverageStatusNote", () => {
     expect(note).toContain("5474cbf");
     // Truncated to 7 characters, like every other commit in the CLI.
     expect(note).not.toContain("5474cbf1");
+  });
+
+  it("omits the provenance clause when there is no value to attribute", () => {
+    // Same rule as the legend: don't describe where a number came from when no
+    // number is on screen.
+    const note = coverageStatusNote(covWaitingNoValue);
+    expect(note).toBe("Not reported yet for the latest commit");
+    expect(note).not.toContain("value from");
   });
 
   it("omits the provenance clause when the value has no timestamp", () => {

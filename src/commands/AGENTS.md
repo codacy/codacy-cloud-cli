@@ -106,12 +106,24 @@ on `Coverage`, which is embedded only in `RepositoryWithAnalysis` — so only
 `PullRequestCoverage`/`DiffCoverage`; neither carries a status, and there is
 nothing to add there.
 
-- **Only `Waiting` and `Stopped` are decorated** (the same two the SPA flags).
-  `UpToDate`, `None`, an undefined `status` and an absent `coverage` object must
+- **The table decorates `Waiting` and `Stopped` only** (the same two the SPA
+  flags). `UpToDate`, an undefined `status` and an absent `coverage` object must
   render exactly as they did before the field existed — the API leaves `status`
   undefined on a large share of repositories, so that is the common path, not an
-  edge case. The `formatRepoCoverage*` unit tests assert byte-identical output
-  against `colorMetric` for precisely this reason.
+  edge case. `formatRepoCoverageCell`/`formatRepoCoverageDetail` have unit tests
+  asserting byte-identical output against `colorMetric` for precisely this
+  reason; keep them passing.
+- **`None` is the asymmetric one.** The table leaves it alone (dim `N/A`, no
+  room to say more), but the detail view renders a deliberate dim `Not set up` —
+  "never received a report" is worth distinguishing from "metric not computed",
+  which is all a bare `N/A` can say. Don't "simplify" that back to `colorMetric`.
+- **`COVERAGE_STATUS_GLYPH` is the exhaustiveness anchor.** It is a
+  `Record<CoverageStatus, …>`, so a new status member arriving from
+  `npm run update-api` fails to compile there rather than silently rendering as
+  nothing in all four renderers. `coverageStatusNote` and
+  `coverageAnalysisSuffix` keep their own switches (their prose differs too much
+  per state to share a table) — when the union widens, start at the Record and
+  work outwards.
 - **Glyph in a table, words in a detail view.** `repositories` appends a dim
   `⋯` (U+22EF) for `Waiting` and shows a dim `⊘` (U+2298) for `Stopped`;
   `repository`'s Metrics row spells the state out with its dates and commit. The
