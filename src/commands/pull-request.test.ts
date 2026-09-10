@@ -1808,6 +1808,58 @@ describe("pull-request command", () => {
     expect(allOutput).not.toContain("Head Commit");
   });
 
+  // `repository` now reads the API's authoritative `coverage.status` instead of
+  // this heuristic, and is `formatAnalysisStatus`'s only other caller — so
+  // `pull-request` is the sole remaining reason the heuristic exists. Nothing
+  // else would fail if someone deleted it. `PullRequestCoverage`/`DiffCoverage`
+  // carry no status field, so there is nothing here to replace it with.
+  it("still derives the coverage hint from the heuristic", async () => {
+    vi.mocked(AnalysisService.getRepositoryPullRequest).mockResolvedValue({
+      ...mockPrData,
+      // No coverage numbers on the PR: `hasCoverageData` is false.
+      coverage: {},
+    } as any);
+    vi.mocked(AnalysisService.listPullRequestIssues)
+      .mockResolvedValueOnce({ data: [], pagination: {} } as any)
+      .mockResolvedValueOnce({ data: [], pagination: {} } as any);
+    vi.mocked(AnalysisService.listPullRequestFiles).mockResolvedValue(
+      { data: [], pagination: {} } as any,
+    );
+    // A coverage overview exists, so a report is expected: `expectsCoverage`.
+    vi.mocked(RepositoryService.listCoverageReports).mockResolvedValue({
+      data: { hasCoverageOverview: true },
+    } as any);
+    vi.mocked(AnalysisService.getPullRequestCommits).mockResolvedValue({
+      data: [{
+        commit: {
+          sha: "abc1234567890",
+          id: 1,
+          commitTimestamp: "2025-06-14T10:00:00Z",
+          authorName: "Test",
+          authorEmail: "test@test.com",
+          message: "fix things",
+          startedAnalysis: "2025-06-14T09:55:00Z",
+          // Finished 4h ago — past the 3h grace period, so "Missing", not
+          // "Waiting". Pins the threshold, not just that *some* hint appears.
+          endedAnalysis: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
+        },
+      }],
+    } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "pull-request", "gh", "test-org", "test-repo", "42",
+    ]);
+
+    const allOutput = (console.log as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => c[0])
+      .join("\n");
+    expect(allOutput).toContain("Missing coverage reports");
+    // The repository-only wording must not leak into the PR path.
+    expect(allOutput).not.toContain("Stopped receiving coverage reports");
+    expect(RepositoryService.listCoverageReports).toHaveBeenCalled();
+  });
+
   // ─── Control-character neutralization (CWE-150) ──────────────────────────
 
   describe("neutralizes terminal control characters in untrusted output", () => {

@@ -632,6 +632,24 @@ describe("repository command", () => {
       expect(upToDate).not.toContain("coverage reports");
     });
 
+    it("shows no coverage hint at all when the API sends no status", async () => {
+      // The accepted trade-off of dropping the heuristic, pinned explicitly:
+      // the API leaves `status` undefined on a large share of repositories, and
+      // for those the Analysis row used to be able to say "Missing coverage
+      // reports". It now says nothing, which is the honest reading of an absent
+      // status — but it is a deliberate behavior removal, so assert it rather
+      // than let it drift back in unnoticed.
+      const output = await run({ coveragePercentage: 78 });
+
+      expect(output).toContain("Finished");
+      expect(output).not.toContain("Missing coverage reports");
+      expect(output).not.toContain("Waiting for coverage reports");
+      expect(output).not.toContain("Stopped receiving");
+      // And the Metrics row is the plain metric, with nothing appended.
+      expect(coverageRow(output)).toContain("78.0%");
+      expect(coverageRow(output)).not.toContain("Not set up");
+    });
+
     it("never calls listCoverageReports — the status supersedes it", async () => {
       await run(waitingCoverage);
       // The state used to be inferred from this call; it now rides along on the
