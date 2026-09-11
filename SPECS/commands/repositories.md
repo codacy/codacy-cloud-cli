@@ -35,11 +35,23 @@ Columnar table. Each row is one repository.
 | Issues | `repo.issuesCount` | |
 | Complex Files | `repo.complexFilesPercentage` | Colored by goals threshold (max mode) |
 | Duplication | `repo.duplicationPercentage` | Colored by goals threshold (max mode) |
-| Coverage | `repo.coveragePercentage` | Colored by goals threshold (min mode) |
+| Coverage | `repo.coverage.coveragePercentage` + `repo.coverage.status` | Colored by goals threshold (min mode). `Waiting` appends a dim `⋯`; `Stopped` shows a dim `⊘` instead of a value (the API sends none). `UpToDate`, `None` and an absent status render as before |
 | Last Updated | `repo.lastUpdated` | Friendly date via `formatFriendlyDate()` |
+
+### Coverage status legend
+
+Printed after the table and before the pagination warning (the legend explains
+the table, the warning explains the query), via `coverageStatusLegend()`. Only
+the statuses actually present in the listing get a line, so an organization with
+healthy coverage everywhere sees nothing:
+
+```
+⋯ no coverage report for the latest commit yet — showing the last known value
+⊘ stopped receiving coverage reports
+```
 
 Shows pagination warning if more pages exist.
 
 ## Tests
 
-File: `src/commands/repositories.test.ts` — 5 tests.
+File: `src/commands/repositories.test.ts` — 10 tests.

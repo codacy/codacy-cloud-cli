@@ -18,7 +18,11 @@ flag a finding when it points at a concrete defect.
 - Test files are deliberately long and repetitive: fixtures are written out in
   full rather than factored into builders, so each test reads standalone. **File-level
   length and duplication findings on `*.test.ts` are expected** and should not be
-  reported.
+  reported. This covers suggestions to *reorganize* as well as metrics — "split
+  this file into focused files", "extract shared fixtures into a module" and the
+  like. Tests are co-located one-per-module by design (`<module>.test.ts` beside
+  its source), so a helper's tests belong in its module's file however long that
+  file grows; splitting by theme instead would break that mapping.
 - Each command test builds its own bare `new Command()` harness rather than
   importing `src/index.ts`. That duplication is intentional — it keeps a command's
   tests independent of global CLI wiring.

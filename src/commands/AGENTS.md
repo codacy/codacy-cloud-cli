@@ -97,11 +97,67 @@ When displaying "Last Updated" or similar dates, use `formatFriendlyDate()` from
 
 Instead of a dedicated "Visibility" column (wastes horizontal space), public repositories are marked with a dimmed `⊙` (U+2299, circled dot operator) appended to the name. Private repositories show the name alone. This character is in the Mathematical Operators Unicode block and renders reliably across terminals.
 
+## Coverage Status Markers
+
+The API returns a `CoverageStatus` (`None` | `UpToDate` | `Waiting` | `Stopped`)
+on `Coverage`, which is embedded only in `RepositoryWithAnalysis` — so only
+`repositories` and `repository` can show it. `ls`/`directories` use a flat
+`coverageWithDecimals` and `pull-request`/`pull-requests` use
+`PullRequestCoverage`/`DiffCoverage`; neither carries a status, and there is
+nothing to add there.
+
+- **The table decorates `Waiting` and `Stopped` only** (the same two the SPA
+  flags). `UpToDate`, an undefined `status` and an absent `coverage` object must
+  render exactly as they did before the field existed — the API leaves `status`
+  undefined on a large share of repositories, so that is the common path, not an
+  edge case. `formatRepoCoverageCell`/`formatRepoCoverageDetail` have unit tests
+  asserting byte-identical output against `colorMetric` for precisely this
+  reason; keep them passing.
+- **`None` is the asymmetric one.** The table leaves it alone (dim `N/A`, no
+  room to say more), but the detail view renders a deliberate dim `Not set up` —
+  "never received a report" is worth distinguishing from "metric not computed",
+  which is all a bare `N/A` can say. Don't "simplify" that back to `colorMetric`.
+- **`COVERAGE_STATUS_GLYPH` is the exhaustiveness anchor.** It is a
+  `Record<CoverageStatus, …>`, so a new status member arriving from
+  `npm run update-api` fails to compile there rather than silently rendering as
+  nothing in all four renderers. `coverageStatusNote` and
+  `coverageAnalysisSuffix` keep their own switches (their prose differs too much
+  per state to share a table) — when the union widens, start at the Record and
+  work outwards.
+- **Glyph in a table, words in a detail view.** `repositories` appends a dim
+  `⋯` (U+22EF) for `Waiting` and shows a dim `⊘` (U+2298) for `Stopped`;
+  `repository`'s Metrics row spells the state out with its dates and commit. The
+  same split the SPA makes between its row icon and its pill/banner text.
+  No emojis, per the note in `tree-view.ts`. `⋯` is already the CLI's
+  "not final yet" marker in `formatStandards`, and `⊘` is in the same
+  Mathematical Operators block as the `⊙` public-repository marker.
+- **Read the payload shapes before changing this.** They differ in more than
+  `status`: `Waiting` carries a *stale* percentage (from
+  `lastCommitWithCoverage`, with `valueUpdatedAt` older than `statusUpdatedAt`),
+  `Stopped` carries **no percentage at all**, and `None` carries nothing but the
+  status. So the `Stopped` marker *replaces* the value rather than suffixing it,
+  and a `Waiting` value is real but needs qualifying.
+- **A glyph legend is conditional.** `coverageStatusLegend()` returns a line
+  only for the statuses actually present in the listing, printed after the table
+  and before the pagination warning — the legend explains the table, the warning
+  explains the query.
+- **`Waiting` keeps its threshold coloring.** The glyph/note marks the value
+  stale; the red/green still answers "is this repository above its coverage
+  goal", same as every other row. The SPA does the same.
+
 ## repositories command (`repositories.ts`)
 
 - Takes `<provider>` and `<organization>` as required arguments
 - Optional `--search <query>` passes through to the API's `search` parameter
 - Public repos show `⊙` after the name instead of a separate Visibility column
+- Metric cells use the **shared** `colorMetric` from `utils/formatting.ts`. This
+  file used to carry a local `formatMetric` copy of it, which returned a bare
+  `"N/A"` instead of a dim one; it was deleted when the coverage cell started
+  going through `colorMetric`, since a local copy would let coverage and
+  complexity/duplication drift inside the same table
+- Coverage goes through `formatRepoCoverageCell(repo.coverage, minGoal)` and a
+  conditional `coverageStatusLegend()` under the table — see "Coverage Status
+  Markers" above
 - Quality metrics (complexity, duplication, coverage) are colored red/green based on `goals` thresholds from `RepositoryQualitySettings`:
   - **Max thresholds** (issues, complexity, duplication): green if under, red if over
   - **Min thresholds** (coverage): green if above, red if below
@@ -112,11 +168,11 @@ Instead of a dedicated "Visibility" column (wastes horizontal space), public rep
 ## repository command (`repository.ts`)
 
 - Takes `<provider>`, `<organization>`, and `<repository>` as required arguments
-- Calls three API endpoints in parallel: `getRepositoryWithAnalysis`, `listRepositoryPullRequests`, `issuesOverview`
+- Calls four API endpoints in parallel: `getRepositoryWithAnalysis`, `listRepositoryPullRequests`, `issuesOverview`, `listRepositoryCommits` (`limit=1`). It used to make a fifth call, `listCoverageReports`, purely to feed `formatAnalysisStatus`'s coverage heuristic; `getRepositoryWithAnalysis`'s `coverage.status` answers the same question authoritatively, so the call was dropped. Two consequences worth knowing: the Analysis row is now *correct* for `Waiting` (the heuristic read a waiting repository's stale percentage as healthy and said nothing), and because `getRepositoryWithAnalysis` is whitelisted for repository tokens while `listCoverageReports` is not, repository-token users get the coverage state and `unavailable` no longer lists `coverageReports`
 - Displays a multi-section dashboard:
   - **About**: provider/org/name, visibility, default branch, last updated (friendly date), last analysis (time + short SHA)
   - **Setup**: languages, coding standards, quality gate, problems (yellow if present, green "None" otherwise)
-  - **Metrics**: issues (count + per kLoC), coverage, complexity, duplication — colored by goals thresholds
+  - **Metrics**: issues (count + per kLoC), coverage, complexity, duplication — colored by goals thresholds. Coverage goes through `formatRepoCoverageDetail(data.coverage, minGoal)`, which appends the coverage status in words — see "Coverage Status Markers" above
   - **Open Pull Requests**: filtered to open status, columns:
     - `#`, `Title` (truncated at 50), `Branch` (truncated at 40)
     - `✓` (header is a gray ✓) — green ✓ if `isUpToStandards` is true, red ✗ if false, dim `-` if undefined
@@ -210,6 +266,18 @@ Several helpers are shared between `repository.ts` and `pull-request.ts` via `ut
 - `formatPrIssues(pr, passing)` — +newIssues (colored by gate) / -fixedIssues (always gray). A zero count renders as a bare `0`, no sign — `-0` reads as a negative number, and neither `+0` nor `-0` says anything a plain `0` doesn't (same rule `pull-request.ts`'s Files table and `formatFileDelta` already follow)
 - `prQualityMetric(pr, key)` — reads `newIssues`/`fixedIssues`/`deltaComplexity`/`deltaClonesCount`, **preferring `pr.quality[key]` over the flat top-level `pr[key]`**. The API populates the two inconsistently: the pull-request endpoints return `quality.deltaComplexity` but omit the top-level `deltaComplexity` (while still sending a top-level `deltaClonesCount`), so reading the flat field alone made every PR's complexity render as "no data". `quality` is the newer structured shape — same direction as `coverage` vs. the deprecated top-level coverage fields — so it wins, flat field as fallback. Use this instead of `pr.deltaComplexity` / `pr.deltaClonesCount` in any new PR rendering
 - `hasAnyPrCoverage(prs)` — true when at least one PR in the list carries a coverage number. Callers listing many PRs use it to drop the Coverage column when the repo has no coverage set up (the API returns `diffCoverage.cause` and no values). Lives next to `formatPrCoverage` so both agree on what counts as "has data"
+
+Repository coverage-status helpers shared between `repositories.ts` (table) and
+`repository.ts` (detail) — see "Coverage Status Markers" above for the rules:
+- `coverageStatusGlyph(coverage)` — dim `⋯`/`⊘`, or `undefined` when there is nothing to flag
+- `formatRepoCoverageCell(coverage, threshold)` — the `repositories` Coverage cell: percentage + glyph, or the glyph alone for `Stopped`
+- `coverageStatusLegend(coverages)` — legend lines for only the statuses present in a listing; `[]` when there is nothing to explain
+- `coverageStatusNote(coverage, { gateConfigured })` — the state in words; `gateConfigured` adds "coverage gate no longer enforced" to `Stopped`
+- `formatRepoCoverageDetail(coverage, threshold)` — the `repository` Metrics Coverage row: percentage + note, or the note alone for `Stopped`/`None`. Passes `gateConfigured: threshold !== undefined`
+
+**`formatCoverageCell` is a different helper** — it renders file/folder
+`coverageWithDecimals` for `ls`/`directories`, which has no status. Don't
+repurpose it for repository coverage, and don't confuse the two names.
 
 **Empty-metric convention:** `formatDelta`, `formatPrCoverage`, and `formatPrIssues` render missing values as a dim `-`, matching `formatStandards`, `formatCountCell`, and `formatCoverageCell`. `N/A` is still used elsewhere in the CLI for non-metric fields (grades, dates, author names, default branch) — new metric rendering should use `-`.
 
