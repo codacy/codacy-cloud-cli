@@ -416,6 +416,37 @@ describe("patterns command", () => {
       await run("-k", "false");
       expectMatchesStack(false);
     });
+
+    // Commander's `[value]` syntax greedily eats the next token, so without a
+    // strict parser `patterns gh org repo --matches-stack eslint` would set
+    // matchesStack=true and silently drop the tool name, failing later with a
+    // positional-count error that never mentions the flag.
+    it("rejects a non-boolean value instead of swallowing a positional", async () => {
+      const program = createProgram();
+      // exitOverride must be set on the subcommand too — it does not propagate
+      // from the parent, and Commander reports the bad value on `patterns`.
+      program.exitOverride();
+      program.configureOutput({ writeErr: () => {} });
+      for (const cmd of program.commands) {
+        cmd.exitOverride();
+        cmd.configureOutput({ writeErr: () => {} });
+      }
+
+      await expect(
+        program.parseAsync([
+          "node",
+          "test",
+          "patterns",
+          "gh",
+          "test-org",
+          "test-repo",
+          "--matches-stack",
+          "eslint",
+        ]),
+      ).rejects.toThrow(/expected "true" or "false"/);
+
+      expect(AnalysisService.listRepositoryToolPatterns).not.toHaveBeenCalled();
+    });
   });
 
   it("should show ☑️ icon for patterns enforced by a coding standard", async () => {

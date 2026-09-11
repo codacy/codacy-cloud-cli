@@ -128,7 +128,7 @@ codacy patterns gh my-org my-repo eslint --disable-all --severities Minor
 | `--enabled` | `-e` | Show only enabled patterns (list mode only) |
 | `--disabled` | `-D` | Show only disabled patterns (list mode only) |
 | `--recommended` | `-r` | Show only recommended patterns |
-| `--matches-stack [value]` | `-k` | Filter by whether patterns match the repository stack. Tri-state: the bare flag or `true` sends `matchesStack=true`, `false` sends `matchesStack=false`, omitting it sends nothing |
+| `--matches-stack [value]` | `-k` | Filter by whether patterns match the repository stack. Tri-state: the bare flag or `true` sends `matchesStack=true`, `false` sends `matchesStack=false`, omitting it sends nothing. Any other value is **rejected** — see below |
 | `--enable-all` | `-E` | Bulk enable matching patterns |
 | `--disable-all` | `-X` | Bulk disable matching patterns |
 
@@ -174,7 +174,33 @@ overview call deliberately carries **no** filters — including `--matches-stack
 
 ## Tests
 
-File: `src/commands/patterns.test.ts` — 35 tests.
+### Why `--matches-stack` parses strictly
+
+Commander's optional-value syntax (`[value]`) greedily consumes the next token,
+including one meant as a positional. With a lax parser,
+
+```
+codacy patterns gh my-org my-repo --matches-stack eslint
+```
+
+sets `matchesStack=true` and silently swallows `eslint`, so the command then
+fails with `Ambiguous arguments for 'patterns'. Expected 1 or 4 positional
+arguments, got 3.` — which never mentions the flag that ate the tool name.
+
+`strictBooleanOption()` (`utils/options.ts`) therefore accepts only `true` or
+`false` and rejects anything else up front:
+
+```
+error: option '-k, --matches-stack [value]' argument 'eslint' is invalid.
+expected "true" or "false". If "eslint" was meant as an argument, place it
+before --matches-stack, or pass --matches-stack on its own to mean true.
+```
+
+> ⚠️ `issues --false-positives [value]` still uses the lax `parseBooleanOption`
+> and has the same swallow hazard. Left as-is to keep this change in scope —
+> worth switching to `strictBooleanOption` in a follow-up.
+
+File: `src/commands/patterns.test.ts` — 36 tests.
 
 ---
 
