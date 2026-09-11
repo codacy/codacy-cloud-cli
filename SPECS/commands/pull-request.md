@@ -37,7 +37,7 @@ codacy pr gh my-org my-repo 42 --reanalyze
 - [`listPullRequestFiles`](https://api.codacy.com/api/api-docs#listpullrequestfiles) — files with metric deltas
 - [`getRepositoryPullRequestFilesCoverage`](https://api.codacy.com/api/api-docs#getrepositorypullrequestfilescoverage) — files coverage
 - [`getPullRequestCommits`](https://api.codacy.com/api/api-docs#getpullrequestcommits) with `limit=1` — head commit timing for analysis status
-- [`listCoverageReports`](https://api.codacy.com/api/api-docs#listcoveragereports) with `limit=1` — `hasCoverageOverview` flag
+- [`listCoverageReports`](https://api.codacy.com/api/api-docs#listcoveragereports) with `limit=1` — `hasCoverageOverview` flag. Retained here (and only here) because `PullRequestCoverage`/`DiffCoverage` carry no `CoverageStatus`; `repository` dropped this call once `coverage.status` superseded the heuristic — see [analysis.md](analysis.md)
 
 ## `--issue` mode
 

@@ -35,9 +35,6 @@ function setupDefaultMocks() {
       },
     }],
   } as any);
-  vi.mocked(RepositoryService.listCoverageReports).mockResolvedValue({
-    data: { hasCoverageOverview: false },
-  } as any);
 }
 
 function createProgram(): Command {
@@ -519,6 +516,167 @@ describe("repository command", () => {
     expect(allOutput).toContain("feature/very-long...");
   });
 
+  describe("coverage status", () => {
+    const waitingCoverage = {
+      coveragePercentage: 19,
+      numberTotalFiles: 83,
+      status: "Waiting",
+      lastCommitWithCoverage: "5474cbf195db8f6fb0704d2bc9a8dc4e16065dc9",
+      statusUpdatedAt: "2026-09-10T10:44:04.440743Z",
+      valueUpdatedAt: "2026-09-10T01:13:16.102431Z",
+    };
+    const stoppedCoverage = {
+      status: "Stopped",
+      lastCommitWithCoverage: "8752dbd2bef1fab22db1197ae5e87de371ff2ead",
+      statusUpdatedAt: "2026-08-26T11:08:31.090599Z",
+    };
+
+    async function run(
+      coverage: any,
+      opts: { goals?: any; json?: boolean } = {},
+    ): Promise<string> {
+      // Called more than once in a single test, so don't inherit the previous
+      // run's output.
+      (console.log as ReturnType<typeof vi.fn>).mockClear();
+
+      vi.mocked(AnalysisService.getRepositoryWithAnalysis).mockResolvedValue({
+        data: {
+          ...mockRepoData,
+          coverage,
+          ...(opts.goals !== undefined ? { goals: opts.goals } : {}),
+        } as any,
+      });
+      vi.mocked(AnalysisService.listRepositoryPullRequests).mockResolvedValue({
+        data: [],
+      });
+      vi.mocked(AnalysisService.issuesOverview).mockResolvedValue({
+        data: { counts: mockIssuesCounts },
+      });
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test",
+        ...(opts.json ? ["--output", "json"] : []),
+        "repository", "gh", "test-org", "test-repo",
+      ]);
+
+      return (console.log as ReturnType<typeof vi.fn>).mock.calls
+        .map((c) => c[0])
+        .join("\n");
+    }
+
+    /** The `--output json` payload, which spans lines and so isn't one of them. */
+    function lastJson(): any {
+      const call = (console.log as ReturnType<typeof vi.fn>).mock.calls.find(
+        (c) => typeof c[0] === "string" && c[0].startsWith("{"),
+      );
+      return JSON.parse(call![0]);
+    }
+
+    /** The Metrics section's Coverage row, so a match can't come from elsewhere. */
+    function coverageRow(output: string): string {
+      const row = output
+        .split("\n")
+        .find((line) => /^\s*Coverage\s/.test(line));
+      expect(row, "no Coverage row in Metrics").toBeDefined();
+      return row!;
+    }
+
+    it("explains that a waiting repository's value is stale", async () => {
+      const output = await run(waitingCoverage);
+
+      const row = coverageRow(output);
+      expect(row).toContain("19.0%");
+      expect(row).toContain("Not reported yet for the latest commit");
+      expect(row).toContain("5474cbf");
+    });
+
+    it("replaces a stopped repository's absent value with the reason", async () => {
+      const output = await run(stoppedCoverage);
+
+      const row = coverageRow(output);
+      expect(row).toContain("Stopped receiving reports");
+      expect(row).toContain("8752dbd");
+      // No percentage exists in a Stopped payload, and "N/A" would say less.
+      expect(row).not.toContain("%");
+      expect(row).not.toContain("N/A");
+    });
+
+    it("names the gate consequence only when a coverage goal is set", async () => {
+      const withGoal = await run(stoppedCoverage);
+      expect(coverageRow(withGoal)).toContain(
+        "coverage gate no longer enforced",
+      );
+
+      const withoutGoal = await run(stoppedCoverage, { goals: {} });
+      expect(coverageRow(withoutGoal)).not.toContain("gate");
+    });
+
+    it("distinguishes a repository that never had coverage", async () => {
+      const output = await run({ status: "None" });
+      expect(coverageRow(output)).toContain("Not set up");
+    });
+
+    it("reads the Analysis row's coverage state from the status", async () => {
+      // The bug this fixes: a waiting repository reports a stale percentage, so
+      // the old heuristic ("a coverage number is present") read it as healthy
+      // and the Analysis row said nothing at all.
+      const waiting = await run(waitingCoverage);
+      expect(waiting).toContain("Waiting for coverage reports...");
+
+      const stopped = await run(stoppedCoverage);
+      expect(stopped).toContain("Stopped receiving coverage reports");
+      expect(stopped).not.toContain("Missing coverage reports");
+
+      const upToDate = await run({ coveragePercentage: 78, status: "UpToDate" });
+      expect(upToDate).not.toContain("coverage reports");
+    });
+
+    it("shows no coverage hint at all when the API sends no status", async () => {
+      // The accepted trade-off of dropping the heuristic, pinned explicitly:
+      // the API leaves `status` undefined on a large share of repositories, and
+      // for those the Analysis row used to be able to say "Missing coverage
+      // reports". It now says nothing, which is the honest reading of an absent
+      // status — but it is a deliberate behavior removal, so assert it rather
+      // than let it drift back in unnoticed.
+      const output = await run({ coveragePercentage: 78 });
+
+      expect(output).toContain("Finished");
+      expect(output).not.toContain("Missing coverage reports");
+      expect(output).not.toContain("Waiting for coverage reports");
+      expect(output).not.toContain("Stopped receiving");
+      // And the Metrics row is the plain metric, with nothing appended.
+      expect(coverageRow(output)).toContain("78.0%");
+      expect(coverageRow(output)).not.toContain("Not set up");
+    });
+
+    it("never calls listCoverageReports — the status supersedes it", async () => {
+      await run(waitingCoverage);
+      // The state used to be inferred from this call; it now rides along on the
+      // analysis response, which is also what makes it reach repository tokens.
+      expect(RepositoryService.listCoverageReports).not.toHaveBeenCalled();
+    });
+
+    it("includes the coverage status fields in JSON output", async () => {
+      await run(waitingCoverage, { json: true });
+
+      expect(lastJson().repository.coverage).toEqual({
+        coveragePercentage: 19,
+        status: "Waiting",
+        lastCommitWithCoverage: "5474cbf195db8f6fb0704d2bc9a8dc4e16065dc9",
+        statusUpdatedAt: "2026-09-10T10:44:04.440743Z",
+        valueUpdatedAt: "2026-09-10T01:13:16.102431Z",
+      });
+    });
+
+    it("emits only the status for a repository that never had coverage", async () => {
+      await run({ status: "None" }, { json: true });
+
+      // pickDeep drops undefined, so nothing is invented for the absent fields.
+      expect(lastJson().repository.coverage).toEqual({ status: "None" });
+    });
+  });
+
   it("should fail when CODACY_API_TOKEN is not set", async () => {
     delete process.env.CODACY_API_TOKEN;
 
@@ -966,7 +1124,7 @@ describe("repository command", () => {
         .join("\n");
     }
 
-    it("skips the pull request and coverage calls entirely", async () => {
+    it("skips the pull request call entirely", async () => {
       mockWhitelistedDashboardCalls();
 
       const program = createProgram();
@@ -975,9 +1133,8 @@ describe("repository command", () => {
         "--repository-token", "rt",
       ]);
 
-      // Both are outside a repository token's scope: don't even try.
+      // Outside a repository token's scope: don't even try.
       expect(AnalysisService.listRepositoryPullRequests).not.toHaveBeenCalled();
-      expect(RepositoryService.listCoverageReports).not.toHaveBeenCalled();
       // The whitelisted calls still run, so the dashboard is still worth showing.
       expect(AnalysisService.getRepositoryWithAnalysis).toHaveBeenCalled();
       expect(AnalysisService.issuesOverview).toHaveBeenCalled();
@@ -1015,16 +1172,15 @@ describe("repository command", () => {
       const parsed = JSON.parse(calls[calls.length - 1][0]);
       // Present and iterable, so `jq '.pullRequests[]'` and `| length` still work.
       expect(parsed.pullRequests).toEqual([]);
-      // Coverage is listed too: skipping it silently suppresses the
-      // "missing coverage reports" state, so consumers need to know.
-      expect(parsed.unavailable).toEqual(["pullRequests", "coverageReports"]);
+      // Pull requests are the only section a repository token can't reach —
+      // coverage state now rides along on the whitelisted analysis call.
+      expect(parsed.unavailable).toEqual(["pullRequests"]);
       // The fields the auto-configuration skill reads are unaffected.
       expect(parsed.repository.fileCount).toBe(83);
       expect(parsed.repository.repository.standards).toBeDefined();
       // Same reason as above: `unavailable` follows the token kind, so assert
       // the call really was skipped rather than merely reported as skipped.
       expect(AnalysisService.listRepositoryPullRequests).not.toHaveBeenCalled();
-      expect(RepositoryService.listCoverageReports).not.toHaveBeenCalled();
     });
 
     it("still supports --reanalyze", async () => {

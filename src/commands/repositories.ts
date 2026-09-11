@@ -12,28 +12,14 @@ import {
   printPaginationWarning,
 } from "../utils/output";
 import { AnalysisService } from "../api/client/services/AnalysisService";
-import { formatCount, formatGrade } from "../utils/formatting";
+import {
+  colorMetric,
+  coverageStatusLegend,
+  formatCount,
+  formatGrade,
+  formatRepoCoverageCell,
+} from "../utils/formatting";
 import pluralize from "pluralize";
-
-/**
- * Format a percentage value, coloring it red or green based on a threshold.
- * For "max" thresholds (issues, complexity, duplication): green if under, red if over.
- * For "min" thresholds (coverage): green if over, red if under.
- */
-function formatMetric(
-  value: number | undefined,
-  threshold: number | undefined,
-  mode: "max" | "min",
-): string {
-  if (value === undefined || value === null) return "N/A";
-  const display = `${value.toFixed(1)}%`;
-  if (threshold === undefined) return display;
-  if (mode === "max") {
-    return value > threshold ? ansis.red(display) : ansis.green(display);
-  }
-  // mode === "min"
-  return value < threshold ? ansis.red(display) : ansis.green(display);
-}
 
 export function registerRepositoriesCommand(program: Command) {
   program
@@ -86,6 +72,12 @@ Examples:
             "complexFilesPercentage",
             "duplicationPercentage",
             "coverage.coveragePercentage",
+            "coverage.status",
+            "coverage.lastCommitWithCoverage",
+            "coverage.statusUpdatedAt",
+            // What tells a consumer the `Waiting` percentage above is stale —
+            // the job the ⋯ marker does in the table.
+            "coverage.valueUpdatedAt",
             "goals",
           ])));
           return;
@@ -127,20 +119,19 @@ Examples:
             name,
             formatGrade(repo.gradeLetter),
             repo.issuesCount !== undefined ? String(repo.issuesCount) : "N/A",
-            formatMetric(
+            colorMetric(
               repo.complexFilesPercentage,
               goals?.maxComplexFilesPercentage,
               "max",
             ),
-            formatMetric(
+            colorMetric(
               repo.duplicationPercentage,
               goals?.maxDuplicatedFilesPercentage,
               "max",
             ),
-            formatMetric(
-              repo.coverage?.coveragePercentage,
+            formatRepoCoverageCell(
+              repo.coverage,
               goals?.minCoveragePercentage,
-              "min",
             ),
             repo.repository.lastUpdated
               ? formatFriendlyDate(repo.repository.lastUpdated)
@@ -149,6 +140,13 @@ Examples:
         }
 
         console.log(table.toString());
+
+        // Only the coverage statuses actually present in this listing are
+        // explained, so a healthy organization never pays for the legend.
+        const legend = coverageStatusLegend(
+          repos.map((repo: any) => repo.coverage),
+        );
+        if (legend.length > 0) console.log(`\n${legend.join("\n")}`);
 
         printPaginationWarning(
           response.pagination,

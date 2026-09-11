@@ -11,6 +11,8 @@ import { SeverityLevel } from "../api/client/models/SeverityLevel";
 import { Pattern } from "../api/client/models/Pattern";
 import { ConfiguredPattern } from "../api/client/models/ConfiguredPattern";
 import { CodeBlockLine } from "../api/client/models/CodeBlockLine";
+import { Coverage } from "../api/client/models/Coverage";
+import { CoverageStatus } from "../api/client/models/CoverageStatus";
 import { CveRecord } from "./cve";
 import { AnalysisTool } from "../api/client/models/AnalysisTool";
 import { Tool } from "../api/client/models/Tool";
@@ -446,6 +448,190 @@ export function colorMetric(
     return value > threshold ? ansis.red(display) : ansis.green(display);
   }
   return value < threshold ? ansis.red(display) : ansis.green(display);
+}
+
+// ── Repository coverage status (`Coverage.status`) ───────────────────────────
+//
+// Only `Waiting` and `Stopped` are decorated — the same two the SPA flags.
+// `UpToDate`, `None`, an undefined `status` and an absent `coverage` object all
+// render exactly as they did before this field existed (the API leaves `status`
+// undefined on a large share of repositories, so that path is the common one,
+// not an edge case).
+//
+// Markers are dim glyphs, no emojis: `⋯` is already this CLI's "not final yet"
+// marker in `formatStandards`, and `⊘` (U+2298) is in the same Mathematical
+// Operators block as the `⊙` public-repository marker, which renders reliably
+// across terminals (see `commands/tree-view.ts`).
+const COVERAGE_WAITING_GLYPH = "⋯";
+const COVERAGE_STOPPED_GLYPH = "⊘";
+
+/**
+ * Which statuses carry a marker, and which glyph. **Exhaustive over
+ * `CoverageStatus` on purpose:** a new member arriving from
+ * `npm run update-api` fails to compile *here*, rather than silently rendering
+ * as "nothing to flag" in every renderer below. `coverageStatusNote` and
+ * `coverageAnalysisSuffix` keep their own switches — their prose differs too
+ * much per state to share a table — so this is the single place a widened
+ * union surfaces. Start from here when one does.
+ */
+const COVERAGE_STATUS_GLYPH: Record<CoverageStatus, string | null> = {
+  UpToDate: null,
+  Waiting: COVERAGE_WAITING_GLYPH,
+  Stopped: COVERAGE_STOPPED_GLYPH,
+  None: null,
+};
+
+/** Dim table glyph for a coverage status, or undefined when there's nothing to flag. */
+export function coverageStatusGlyph(coverage?: Coverage): string | undefined {
+  // Indexing with a status the table doesn't know (a value from a newer API
+  // than this build) yields undefined, so an unrecognized state degrades to
+  // "no marker" rather than throwing.
+  const glyph = coverage?.status && COVERAGE_STATUS_GLYPH[coverage.status];
+  return glyph ? ansis.dim(glyph) : undefined;
+}
+
+/**
+ * Coverage cell for the `repositories` table: the threshold-colored percentage
+ * as before, plus a dim glyph when the value is stale (`Waiting` — the number
+ * comes from `lastCommitWithCoverage`, not the latest commit).
+ *
+ * `Stopped` shows the glyph alone. The API sends no percentage in that state,
+ * and suppressing it unconditionally means a future payload that *does* carry
+ * a stale value can't reintroduce a number nobody should read.
+ */
+export function formatRepoCoverageCell(
+  coverage: Coverage | undefined,
+  threshold: number | undefined,
+): string {
+  const glyph = coverageStatusGlyph(coverage);
+  // `&& glyph` rather than a non-null assertion: were the marker ever to go
+  // missing, falling through prints the ordinary "N/A" instead of the literal
+  // string "undefined".
+  if (coverage?.status === "Stopped" && glyph) return glyph;
+  const value = colorMetric(coverage?.coveragePercentage, threshold, "min");
+  return glyph ? `${value} ${glyph}` : value;
+}
+
+/** Whether a coverage payload actually carries a percentage to render. */
+function hasCoverageValue(coverage: Coverage | undefined): boolean {
+  return (
+    coverage?.coveragePercentage !== undefined &&
+    coverage?.coveragePercentage !== null
+  );
+}
+
+/**
+ * Legend lines explaining the glyphs, for only the statuses actually present in
+ * a listing — an organization with healthy coverage everywhere pays nothing.
+ * Returns an empty array when there is nothing to explain.
+ */
+export function coverageStatusLegend(
+  coverages: Array<Coverage | undefined>,
+): string[] {
+  const waiting = coverages.filter((c) => c?.status === "Waiting");
+  const present = new Set(coverages.map((c) => c?.status));
+  const lines: string[] = [];
+  if (waiting.length > 0) {
+    // A `Waiting` payload normally carries a stale percentage from
+    // `lastCommitWithCoverage`, but the field is documented as present only for
+    // the latest commit — so only claim a last known value when one is
+    // actually rendered, instead of explaining a number that isn't there.
+    const showsValue = waiting.some((c) => hasCoverageValue(c));
+    const suffix = showsValue ? " — showing the last known value" : "";
+    lines.push(
+      ansis.dim(
+        `${COVERAGE_WAITING_GLYPH} no coverage report for the latest commit yet${suffix}`,
+      ),
+    );
+  }
+  if (present.has("Stopped")) {
+    lines.push(
+      ansis.dim(`${COVERAGE_STOPPED_GLYPH} stopped receiving coverage reports`),
+    );
+  }
+  return lines;
+}
+
+/**
+ * The coverage status spelled out in words, for the `repository` dashboard's
+ * Metrics section where there is room for a sentence. Returns undefined when
+ * there is nothing to say (`UpToDate`, undefined status, absent coverage).
+ *
+ * Colors follow `formatAnalysisStatus`: blueBright = transient/in-flight,
+ * yellow = needs attention, dim = nothing there.
+ *
+ * `gateConfigured` adds the consequence of a stopped repository — a red
+ * coverage number on a repository whose coverage gate is no longer enforced is
+ * actively misleading.
+ */
+export function coverageStatusNote(
+  coverage: Coverage | undefined,
+  opts: { gateConfigured?: boolean } = {},
+): string | undefined {
+  // Commit SHAs come from the API but are repository-derived, so sanitize
+  // before slicing — a slice must not be able to end mid-escape-sequence.
+  const shortSha = (sha?: string) => sanitizeText(sha ?? "").substring(0, 7);
+
+  switch (coverage?.status) {
+    case "Waiting": {
+      // The values are present but stale: they come from the last commit that
+      // did receive a report, not from the latest commit.
+      const commit = coverage.lastCommitWithCoverage
+        ? ` (${shortSha(coverage.lastCommitWithCoverage)})`
+        : "";
+      // Gated on the percentage as well as the timestamp: with no value on
+      // screen, "value from ..." would describe something the row never shows.
+      const from =
+        hasCoverageValue(coverage) && coverage.valueUpdatedAt
+          ? ` — value from ${formatFriendlyDate(coverage.valueUpdatedAt)}${commit}`
+          : "";
+      return ansis.blueBright(`Not reported yet for the latest commit${from}`);
+    }
+    case "Stopped": {
+      const when = coverage.statusUpdatedAt
+        ? ` ${formatFriendlyDate(coverage.statusUpdatedAt)}`
+        : "";
+      const last = coverage.lastCommitWithCoverage
+        ? ` — last report ${shortSha(coverage.lastCommitWithCoverage)}`
+        : "";
+      const gate = opts.gateConfigured
+        ? " — coverage gate no longer enforced"
+        : "";
+      return ansis.yellow(`Stopped receiving reports${when}${last}${gate}`);
+    }
+    case "None":
+      // Distinguishable from a metric Codacy simply didn't compute, which is
+      // all a bare "N/A" could ever say.
+      return ansis.dim("Not set up");
+    default:
+      return undefined; // UpToDate | undefined
+  }
+}
+
+/**
+ * Coverage row for the `repository` dashboard's Metrics section: the
+ * threshold-colored percentage followed by the status note, or the note alone
+ * for the two states that have no percentage to show.
+ */
+export function formatRepoCoverageDetail(
+  coverage: Coverage | undefined,
+  threshold: number | undefined,
+): string {
+  const note = coverageStatusNote(coverage, {
+    gateConfigured: threshold !== undefined,
+  });
+  // `Stopped` carries no percentage and `None` never had one; in both cases the
+  // note says strictly more than a bare "N/A" would.
+  // `&& note` for the same reason as the cell's `&& glyph`: degrade to the
+  // ordinary metric rather than risk printing the string "undefined".
+  if (
+    (coverage?.status === "Stopped" || coverage?.status === "None") &&
+    note
+  ) {
+    return note;
+  }
+  const value = colorMetric(coverage?.coveragePercentage, threshold, "min");
+  return note ? `${value}  ${note}` : value;
 }
 
 /**
@@ -1057,15 +1243,56 @@ export async function resolveToolUuids(
 const COVERAGE_REPORTS_WAIT_HOURS = 3;
 
 /**
+ * The coverage half of the analysis status: which coverage state, if any, to
+ * append after a finished analysis.
+ *
+ * Two sources, in priority order:
+ *
+ * 1. `coverageStatus` — the API's own `Coverage.status`, available on the
+ *    repository endpoints. Authoritative, so it wins outright.
+ * 2. The heuristic below — "a coverage overview exists but this commit has no
+ *    coverage number", with a 3-hour grace period. Only pull requests still
+ *    need it: `PullRequestCoverage`/`DiffCoverage` carry no status field.
+ *
+ * The heuristic is wrong for `Waiting`, which is why (1) exists: a waiting
+ * repository still reports a percentage (a stale one, from the last commit that
+ * did receive a report), so `hasCoverageData` is true and the heuristic reads
+ * the repository as healthy.
+ */
+function coverageAnalysisSuffix(opts: {
+  coverageStatus?: CoverageStatus;
+  expectsCoverage?: boolean;
+  hasCoverageData?: boolean;
+  endedAnalysis: string;
+}): string | undefined {
+  const { coverageStatus, expectsCoverage, hasCoverageData, endedAnalysis } = opts;
+
+  if (coverageStatus) {
+    if (coverageStatus === "Waiting") {
+      return ansis.blueBright("Waiting for coverage reports...");
+    }
+    if (coverageStatus === "Stopped") {
+      return ansis.yellow("Stopped receiving coverage reports");
+    }
+    return undefined; // UpToDate | None
+  }
+
+  if (!expectsCoverage || hasCoverageData) return undefined;
+
+  const hoursSinceFinish = differenceInHours(new Date(), parseISO(endedAnalysis));
+  return hoursSinceFinish <= COVERAGE_REPORTS_WAIT_HOURS
+    ? ansis.blueBright("Waiting for coverage reports...")
+    : ansis.yellow("Missing coverage reports");
+}
+
+/**
  * Format the analysis status string for a commit (used by repository and pull-request commands).
  *
  * Logic:
  * - Being analyzed = startedAnalysis exists and (no endedAnalysis OR startedAnalysis > endedAnalysis)
  * - If being analyzed + has previous endedAnalysis: "Finished {date} ({sha}) — Reanalysis in progress..."
  * - If being analyzed + no previous finish: "In progress... ({sha})"
- * - If finished + expects coverage but no data:
- *   - ≤3h: "Finished {date} ({sha}) — Waiting for coverage reports..."
- *   - >3h: "Finished {date} ({sha}) — Missing coverage reports"
+ * - If finished, a coverage state may be appended — see `coverageAnalysisSuffix`
  * - If finished normally: "Finished {date} ({sha})"
  * - No analysis data: dim "Never"
  */
@@ -1073,10 +1300,23 @@ export function formatAnalysisStatus(opts: {
   commitSha: string;
   startedAnalysis?: string;
   endedAnalysis?: string;
-  expectsCoverage: boolean;
-  hasCoverageData: boolean;
+  /**
+   * Authoritative `Coverage.status` — repository endpoints only. Takes
+   * precedence over the `expectsCoverage`/`hasCoverageData` heuristic below.
+   */
+  coverageStatus?: CoverageStatus;
+  /** Heuristic fallback, pull requests only. See `coverageAnalysisSuffix`. */
+  expectsCoverage?: boolean;
+  hasCoverageData?: boolean;
 }): string {
-  const { commitSha, startedAnalysis, endedAnalysis, expectsCoverage, hasCoverageData } = opts;
+  const {
+    commitSha,
+    startedAnalysis,
+    endedAnalysis,
+    coverageStatus,
+    expectsCoverage,
+    hasCoverageData,
+  } = opts;
   const shortSha = commitSha.substring(0, 7);
 
   if (!startedAnalysis && !endedAnalysis) {
@@ -1096,15 +1336,14 @@ export function formatAnalysisStatus(opts: {
     const finishedDate = formatFriendlyDate(endedAnalysis);
     const base = `Finished ${finishedDate} (${shortSha})`;
 
-    if (expectsCoverage && !hasCoverageData) {
-      const hoursSinceFinish = differenceInHours(new Date(), parseISO(endedAnalysis));
-      if (hoursSinceFinish <= COVERAGE_REPORTS_WAIT_HOURS) {
-        return `${base} — ${ansis.blueBright("Waiting for coverage reports...")}`;
-      }
-      return `${base} — ${ansis.yellow("Missing coverage reports")}`;
-    }
+    const coverageSuffix = coverageAnalysisSuffix({
+      coverageStatus,
+      expectsCoverage,
+      hasCoverageData,
+      endedAnalysis,
+    });
 
-    return base;
+    return coverageSuffix ? `${base} — ${coverageSuffix}` : base;
   }
 
   return ansis.dim("Never");

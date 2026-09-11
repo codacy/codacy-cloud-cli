@@ -125,19 +125,22 @@ partial-but-sufficient `repository` dashboard.
   make it invisible to the test harnesses, which each build a bare
   `new Command()`. `repositoryTokenFlag()` reads the command's own value before
   the inherited one, so the nearest wins.
-- **`repository` dashboard degradation.** `listRepositoryPullRequests` and
-  `listCoverageReports` are skipped rather than attempted. The table keeps the
-  `Open Pull Requests` header with an explanatory line — a vanishing section
-  reads as a bug, and `printPullRequests([])` would claim "No open pull
-  requests", a different and false statement. In JSON, `pullRequests` stays `[]`
-  (so `jq '.pullRequests[]'` and `| length` keep working) and an additive
-  `unavailable` array distinguishes "none" from "couldn't look".
-  Under an account token the payload is byte-identical to before this change.
-  `unavailable` lists `coverageReports` too, even though no coverage key is
-  projected: skipping that call forces `expectsCoverage` false, which silently
-  suppresses the "waiting for / missing coverage reports" state on the Analysis
-  row — without the marker, a repo that *is* configured for coverage but has
-  uploaded none would look identical to a healthy one.
+- **`repository` dashboard degradation.** `listRepositoryPullRequests` is
+  skipped rather than attempted. The table keeps the `Open Pull Requests` header
+  with an explanatory line — a vanishing section reads as a bug, and
+  `printPullRequests([])` would claim "No open pull requests", a different and
+  false statement. In JSON, `pullRequests` stays `[]` (so `jq '.pullRequests[]'`
+  and `| length` keep working) and an additive `unavailable` array distinguishes
+  "none" from "couldn't look". Under an account token the payload is
+  byte-identical.
+
+  `unavailable` used to list `coverageReports` too: `listCoverageReports` is not
+  whitelisted, and skipping it silently suppressed the coverage state on the
+  Analysis row. That call is gone — `getRepositoryWithAnalysis`, which *is*
+  whitelisted, now returns `coverage.status`, so a repository token gets the
+  full coverage state (in the Analysis row, the Metrics section and JSON) and
+  `unavailable` is `["pullRequests"]` alone. This is one of the few places where
+  a repository token gained capability rather than losing it.
 - **`login` is account-only.** It validates against `/user`, which a repository
   token can never reach, and the credentials store holds a single bare token
   with no record of its kind. Its 401 message names the repository-token case
