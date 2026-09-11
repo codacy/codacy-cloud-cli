@@ -1,5 +1,55 @@
 # @codacy/codacy-cloud-cli
 
+## 1.11.0
+
+### Minor Changes
+
+- [#48](https://github.com/codacy/codacy-cloud-cli/pull/48) [`e58f17a`](https://github.com/codacy/codacy-cloud-cli/commit/e58f17a7cab60acd9e4e15fd9d518407017fcfcb) Thanks [@alerizzo](https://github.com/alerizzo)! - Show the repository's coverage **status**, not just its percentage.
+
+  Codacy now reports whether a repository's coverage is up to date, still waiting
+  on a report, has stopped receiving them, or was never set up — and the CLI can
+  tell those apart:
+
+  - `codacy repos` marks a repository whose latest commit has no report yet with a
+    dim `⋯` after its last known value, and shows a dim `⊘` instead of a number
+    for one that has stopped receiving reports. A legend under the table explains
+    only the states actually present in the listing.
+  - `codacy repo`'s Metrics section spells the same states out, with the date and
+    commit of the last report, and notes when a stopped repository's coverage gate
+    is no longer being enforced. A repository that never had coverage now reads
+    `Not set up` rather than a bare `N/A`.
+  - `codacy repo`'s Analysis row reads coverage state from the API's own status
+    field instead of inferring it from a separate request. This fixes repositories
+    that were reported as healthy while showing a stale percentage, drops one
+    request per run, and makes the coverage state available under a repository
+    token for the first time.
+
+  `--output json` gains `coverage.status`, `coverage.lastCommitWithCoverage`,
+  `coverage.statusUpdatedAt` and `coverage.valueUpdatedAt` on both commands. Under
+  a repository token, `codacy repo`'s `unavailable` array is now `["pullRequests"]`
+  only.
+
+- [#45](https://github.com/codacy/codacy-cloud-cli/pull/45) [`e21f321`](https://github.com/codacy/codacy-cloud-cli/commit/e21f321c28ef2963a7bd0ee9cfdabb2666d15c46) Thanks [@alerizzo](https://github.com/alerizzo)! - New `-k, --matches-stack [value]` filter on `codacy patterns`, which narrows a tool's code patterns to those that do (or don't) match the repository's detected stack.
+
+  It's a tri-state flag, the same shape as `issues --false-positives`:
+
+  ```bash
+  codacy patterns eslint9 --matches-stack          # only patterns matching the repo stack
+  codacy patterns eslint9 --matches-stack true     # same
+  codacy patterns eslint9 --matches-stack false    # only patterns that don't match
+  codacy patterns eslint9                          # unfiltered
+  ```
+
+  The filter applies in bulk mode too, so `--enable-all` / `--disable-all` can be scoped to the stack:
+
+  ```bash
+  codacy patterns eslint9 --disable-all --matches-stack false
+  ```
+
+  The summary printed after a bulk update still reports counts for the whole tool, not just the updated subset.
+
+  Only `true` and `false` are accepted as values. Because Commander's optional-value syntax consumes the next token, a lax parser would let `codacy patterns gh org repo --matches-stack eslint` silently swallow the tool name and then fail with a confusing positional-count error; the flag now rejects non-boolean values with a message that says what to do instead.
+
 ## 1.10.0
 
 ### Minor Changes
