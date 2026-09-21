@@ -658,6 +658,18 @@ async function keepLatestAsJson(
   if (outcome.failures.length > 0) process.exitCode = 1;
 }
 
+function printNothingToDelete(
+  label: string,
+  tagCount: number,
+  keepLatest: number,
+): void {
+  console.log(
+    ansis.green(
+      `\n${label} has ${formatCount(tagCount)} ${pluralize("tag", tagCount)}, at or under the ${formatCount(keepLatest)} to keep. Nothing to delete.`,
+    ),
+  );
+}
+
 /** The "what is about to happen" block: one sentence, then the keep/delete table. */
 function printKeepLatestPlan(
   label: string,
@@ -714,11 +726,7 @@ async function executeKeepLatest(
   // Nothing to do is the common case in a pipeline that runs this every
   // release, so it exits cleanly rather than treating it as an error.
   if (doomed.length === 0) {
-    console.log(
-      ansis.green(
-        `\n${label} has ${formatCount(tags.length)} ${pluralize("tag", tags.length)}, at or under the ${formatCount(opts.keepLatest)} to keep. Nothing to delete.`,
-      ),
-    );
+    printNothingToDelete(label, tags.length, opts.keepLatest);
     return;
   }
 
