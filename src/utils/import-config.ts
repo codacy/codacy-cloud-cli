@@ -12,6 +12,7 @@ import { AnalysisService } from "../api/client/services/AnalysisService";
 import { ToolsService } from "../api/client/services/ToolsService";
 import { CodingStandardsService } from "../api/client/services/CodingStandardsService";
 import { ApiError } from "../api/client/core/ApiError";
+import { apiErrorDetails } from "./error";
 import type ora from "ora";
 
 const execAsync = promisify(exec);
@@ -41,32 +42,6 @@ export interface ImportFailure {
   details: string[];
 }
 
-function parseApiErrorBody(body: unknown): string[] {
-  if (body && typeof body === "object") {
-    const details: string[] = [];
-    const obj = body as Record<string, unknown>;
-    if (typeof obj.message === "string") {
-      details.push(obj.message);
-    }
-    if (Array.isArray(obj.errors)) {
-      for (const e of obj.errors) {
-        details.push(typeof e === "string" ? e : ((e as any)?.message ?? JSON.stringify(e)));
-      }
-    }
-    if (details.length === 0) {
-      const serialized = JSON.stringify(body);
-      if (serialized !== "{}" && serialized !== "null") {
-        details.push(serialized);
-      }
-    }
-    return details;
-  }
-  if (typeof body === "string" && body.length > 0) {
-    return [body];
-  }
-  return [];
-}
-
 function extractErrorDetails(err: unknown): Pick<ImportFailure, "error" | "status" | "details"> {
   if (!(err instanceof ApiError)) {
     return {
@@ -74,7 +49,7 @@ function extractErrorDetails(err: unknown): Pick<ImportFailure, "error" | "statu
       details: [],
     };
   }
-  return { error: err.message, status: err.status, details: parseApiErrorBody(err.body) };
+  return { error: err.message, status: err.status, details: apiErrorDetails(err.body) };
 }
 
 export function readConfigFile(filePath: string): CodacyConfig {
