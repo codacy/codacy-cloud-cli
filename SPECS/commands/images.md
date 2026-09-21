@@ -186,6 +186,14 @@ upload-then-delete *fails at the cap* and can strand an org there
   attempted and the failures are listed. The exit code is still 1 — a partial
   cleanup is a real failure for the step that follows.
 
+**`--output json` emits one document, after the fact.** Nothing is printed until
+every delete has been attempted, so `deleted` names the tags that actually went
+rather than the ones that were going to; `failures` carries the rest. Printing
+up front reported failed deletes as successes and then emitted a second JSON
+value on the same stdout. The non-zero exit on a partial cleanup applies here
+too — `--output json` is the mode a release pipeline runs in, and the mode where
+a silent zero exit is most expensive.
+
 **Ordered by `uploadedAt`, not `generatedAt`.** "Latest" for a pipeline that
 uploads per release means when Codacy received the SBOM; `generatedAt` is when
 it was built, which can differ and is not what accumulates against the cap.
