@@ -22,6 +22,12 @@ function getAllOutput(): string {
     .join("\n");
 }
 
+function errorOutput(): string {
+  return (console.error as ReturnType<typeof vi.fn>).mock.calls
+    .flat()
+    .join("\n");
+}
+
 function mockTag(overrides: Record<string, unknown> = {}) {
   return {
     imageName: "my-service",
@@ -229,7 +235,9 @@ describe("image command", () => {
         "--tag", "1.2.3", "--delete",
       ]);
 
-      expect(getAllOutput()).toContain(
+      // stderr, not stdout: a warning is not part of the command's output, and
+      // under --output json stdout carries the JSON document and nothing else.
+      expect(errorOutput()).toContain(
         "zeroes Container Scanning metrics for the whole organization",
       );
       expect(confirm).toHaveBeenCalledWith(
@@ -256,6 +264,25 @@ describe("image command", () => {
 
       expect(SbomService.deleteImageTag).not.toHaveBeenCalled();
       expect(getAllOutput()).toContain("nothing was deleted");
+    });
+
+    it("reports a declined confirmation as JSON under --output json", async () => {
+      vi.spyOn(prompt, "confirmAction").mockResolvedValue(false);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "--output", "json", "image", "gh", "test-org",
+        "my-service", "--tag", "1.2.3", "--delete",
+      ]);
+
+      expect(SbomService.deleteImageTag).not.toHaveBeenCalled();
+      // Parseable, rather than a prose line a pipeline would choke on.
+      expect(JSON.parse(getAllOutput())).toEqual({
+        imageName: "my-service",
+        tag: "1.2.3",
+        deleted: false,
+        aborted: true,
+      });
     });
 
     it("skips the prompt with --skip-confirmation", async () => {

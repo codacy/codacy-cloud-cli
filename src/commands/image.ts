@@ -132,6 +132,27 @@ Examples:
  * the end when `limit` is omitted — what the single-tag lookup needs, since the
  * tag it wants may be on any page).
  */
+async function fetchTagPage(
+  provider: string,
+  organization: string,
+  image: string,
+  cursor: string | undefined,
+  limit: number | undefined,
+): Promise<{ tags: ImageTagSummary[]; cursor?: string; total?: number }> {
+  const response = await SbomService.listImageTags(
+    provider,
+    organization,
+    image,
+    cursor,
+    limit ? Math.min(limit, PAGE_SIZE) : PAGE_SIZE,
+  );
+  return {
+    tags: response.data,
+    cursor: response.pagination?.cursor,
+    total: response.pagination?.total,
+  };
+}
+
 async function fetchTags(
   provider: string,
   organization: string,
@@ -143,21 +164,48 @@ async function fetchTags(
   let total: number | undefined;
 
   do {
-    const response = await SbomService.listImageTags(
-      provider,
-      organization,
-      image,
-      cursor,
-      limit ? Math.min(limit, PAGE_SIZE) : PAGE_SIZE,
-    );
-    tags.push(...response.data);
-    cursor = response.pagination?.cursor;
-    total = response.pagination?.total ?? total;
+    const page = await fetchTagPage(provider, organization, image, cursor, limit);
+    tags.push(...page.tags);
+    cursor = page.cursor;
+    total = page.total ?? total;
   } while (cursor && (limit === undefined || tags.length < limit));
 
   if (limit !== undefined && tags.length > limit) tags = tags.slice(0, limit);
 
   return { tags, cursor, total };
+}
+
+/** A dash rather than a blank cell, so an empty column still reads as a column. */
+function orDash(value: string | undefined, render: (v: string) => string): string {
+  return value ? render(value) : ansis.dim("-");
+}
+
+function renderTagsTable(tags: ImageTagSummary[]): string {
+  const table = createTable({
+    head: [
+      "Tag",
+      "Environment",
+      "Repository",
+      "Generated",
+      "Uploaded",
+      "Last Analysed",
+    ],
+  });
+
+  for (const tag of tags) {
+    // Tag, environment and repository names arrive with the SBOM upload and are
+    // user-controlled — neutralize before styling.
+    table.push([
+      sanitizeText(tag.tag),
+      orDash(tag.environment, sanitizeText),
+      orDash(tag.repositoryName, sanitizeText),
+      orDash(tag.generatedAt, formatFriendlyDate),
+      orDash(tag.uploadedAt, formatFriendlyDate),
+      orDash(tag.lastAnalysedAt, formatFriendlyDate),
+    ]);
+  }
+
+  return table.toString();
 }
 
 async function listTags(
@@ -198,33 +246,7 @@ async function listTags(
     ),
   );
 
-  const table = createTable({
-    head: [
-      "Tag",
-      "Environment",
-      "Repository",
-      "Generated",
-      "Uploaded",
-      "Last Analysed",
-    ],
-  });
-
-  for (const tag of tags) {
-    // Tag, environment and repository names arrive with the SBOM upload and are
-    // user-controlled — neutralize before styling.
-    table.push([
-      sanitizeText(tag.tag),
-      tag.environment ? sanitizeText(tag.environment) : ansis.dim("-"),
-      tag.repositoryName ? sanitizeText(tag.repositoryName) : ansis.dim("-"),
-      tag.generatedAt ? formatFriendlyDate(tag.generatedAt) : ansis.dim("-"),
-      tag.uploadedAt ? formatFriendlyDate(tag.uploadedAt) : ansis.dim("-"),
-      tag.lastAnalysedAt
-        ? formatFriendlyDate(tag.lastAnalysedAt)
-        : ansis.dim("-"),
-    ]);
-  }
-
-  console.log(table.toString());
+  console.log(renderTagsTable(tags));
   console.log(
     ansis.dim(
       `\nDelete one tag with --tag <tag> --delete, or every tag with --delete.`,
@@ -249,7 +271,7 @@ async function showTag(
   tag: string,
   format: string,
 ): Promise<void> {
-  const spinner = ora(`Looking for tag ${tag}...`).start();
+  const spinner = ora(`Looking for tag ${sanitizeText(tag)}...`).start();
   const { tags } = await fetchTags(provider, organization, image);
   spinner.stop();
 
@@ -271,17 +293,18 @@ async function showTag(
 
   const table = createTable();
   table.push(
-    ["Environment", match.environment ? sanitizeText(match.environment) : ansis.dim("-")],
-    ["Repository", match.repositoryName ? sanitizeText(match.repositoryName) : ansis.dim("-")],
-    ["Generated", match.generatedAt ? formatFriendlyDate(match.generatedAt) : ansis.dim("-")],
-    ["Uploaded", match.uploadedAt ? formatFriendlyDate(match.uploadedAt) : ansis.dim("-")],
-    [
-      "Last Analysed",
-      match.lastAnalysedAt ? formatFriendlyDate(match.lastAnalysedAt) : ansis.dim("-"),
-    ],
+    ["Environment", orDash(match.environment, sanitizeText)],
+    ["Repository", orDash(match.repositoryName, sanitizeText)],
+    ["Generated", orDash(match.generatedAt, formatFriendlyDate)],
+    ["Uploaded", orDash(match.uploadedAt, formatFriendlyDate)],
+    ["Last Analysed", orDash(match.lastAnalysedAt, formatFriendlyDate)],
   );
   console.log(table.toString());
-  console.log(ansis.dim(`\nDelete this tag with --tag ${match.tag} --delete.`));
+  // `match.tag` came back from the API, so it is neutralized like every other
+  // SBOM-supplied value reaching the terminal — not just the ones in the table.
+  console.log(
+    ansis.dim(`\nDelete this tag with --tag ${sanitizeText(match.tag)} --delete.`),
+  );
 }
 
 /**
@@ -305,11 +328,23 @@ async function executeDelete(
       ? `the SBOM for ${label}`
       : `${label} and ${await describeTagCount(provider, organization, image)}`;
 
-    console.log(ansis.yellow(METRICS_WIPE_NOTICE));
+    console.error(ansis.yellow(METRICS_WIPE_NOTICE));
     const confirmed = await confirmAction(
       `Delete ${scope}? This cannot be undone.`,
     );
     if (!confirmed) {
+      // Under `--output json` stdout carries one JSON document and nothing
+      // else, so the outcome is reported as that document rather than as a
+      // prose line a parser would choke on.
+      if (json) {
+        printJson({
+          imageName: image,
+          ...(tag ? { tag } : {}),
+          deleted: false,
+          aborted: true,
+        });
+        return;
+      }
       console.log(ansis.dim(`Aborted — nothing was deleted. ${ABORT_HINT}`));
       return;
     }
