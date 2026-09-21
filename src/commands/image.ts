@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { Command } from "commander";
-import ora from "ora";
+import ora, { type Ora } from "ora";
 import ansis from "ansis";
 import pluralize from "pluralize";
 import { repositoryTokenOption, resolveAccountAuth } from "../utils/auth";
@@ -120,32 +120,7 @@ Examples:
           "it reads, uploads and deletes organization-level container image data",
         );
         const format = getOutputFormat(this);
-
-        // Two different verbs, unlike `--delete`'s two scopes: asking for both
-        // in one invocation says nothing coherent about what should happen to
-        // the SBOM, so it is refused rather than ordered.
-        if (options.upload && options.delete) {
-          throw new Error(
-            "--upload and --delete cannot be combined: one adds an SBOM, the other removes it.",
-          );
-        }
-
-        // `--keep-latest` and `--dry-run` narrow and preview a delete; neither
-        // says anything on its own, so they are refused rather than ignored.
-        if (!options.delete && (options.keepLatest !== undefined || options.dryRun)) {
-          throw new Error(
-            `${options.keepLatest !== undefined ? "--keep-latest" : "--dry-run"} only applies to --delete.`,
-          );
-        }
-
-        // Two ways to say which tags to act on. `--tag` names one, and
-        // `--keep-latest` names all but the newest n — asking for both says
-        // nothing coherent about the scope.
-        if (options.tag && options.keepLatest !== undefined) {
-          throw new Error(
-            "--tag and --keep-latest cannot be combined: --tag acts on one tag, --keep-latest on every tag but the newest n.",
-          );
-        }
+        rejectIncoherentOptions(options);
 
         if (options.upload) {
           await executeUpload(provider, organization, image, options.upload, {
@@ -192,6 +167,46 @@ Examples:
         handleError(err);
       }
     });
+}
+
+/**
+ * The flag combinations that say nothing coherent, refused before any request.
+ *
+ * Each is a pair the command could silently pick a winner from, and silently
+ * picking is the failure mode worth avoiding here — the command deletes.
+ */
+function rejectIncoherentOptions(options: {
+  tag?: string;
+  upload?: string;
+  delete?: boolean;
+  keepLatest?: string;
+  dryRun?: boolean;
+}): void {
+  // Two different verbs, unlike `--delete`'s two scopes: asking for both
+  // in one invocation says nothing coherent about what should happen to
+  // the SBOM, so it is refused rather than ordered.
+  if (options.upload && options.delete) {
+    throw new Error(
+      "--upload and --delete cannot be combined: one adds an SBOM, the other removes it.",
+    );
+  }
+
+  // `--keep-latest` and `--dry-run` narrow and preview a delete; neither
+  // says anything on its own, so they are refused rather than ignored.
+  if (!options.delete && (options.keepLatest !== undefined || options.dryRun)) {
+    throw new Error(
+      `${options.keepLatest !== undefined ? "--keep-latest" : "--dry-run"} only applies to --delete.`,
+    );
+  }
+
+  // Two ways to say which tags to act on. `--tag` names one, and
+  // `--keep-latest` names all but the newest n — asking for both says
+  // nothing coherent about the scope.
+  if (options.tag && options.keepLatest !== undefined) {
+    throw new Error(
+      "--tag and --keep-latest cannot be combined: --tag acts on one tag, --keep-latest on every tag but the newest n.",
+    );
+  }
 }
 
 /**
@@ -562,19 +577,26 @@ function orgBudgetWarning(
  * after the upload that follows it. Making it secretly mean n-1 would be a
  * number that doesn't match what the user typed.
  */
-async function executeKeepLatest(
+type KeepLatestPlan = {
+  tags: ImageTagSummary[];
+  kept: ImageTagSummary[];
+  doomed: ImageTagSummary[];
+  imageCount: number | undefined;
+  budgetWarning: string | undefined;
+};
+
+/**
+ * What `--keep-latest <n>` would do, decided before anything is printed or
+ * deleted — so the JSON path, the table path and the dry run all work from one
+ * answer rather than each recomputing it.
+ */
+async function planKeepLatest(
   provider: string,
   organization: string,
   image: string,
-  opts: {
-    keepLatest: number;
-    dryRun: boolean;
-    skipConfirmation: boolean;
-    json: boolean;
-  },
-): Promise<void> {
-  const label = sanitizeText(image);
-  const spinner = ora(`Fetching tags for ${label}...`).start();
+  keepLatest: number,
+): Promise<KeepLatestPlan> {
+  const spinner = ora(`Fetching tags for ${sanitizeText(image)}...`).start();
   // Every page: a tag on page 3 is just as deletable as one on page 1, and a
   // partial view would silently keep tags the user asked to remove.
   const { tags } = await fetchTags(provider, organization, image);
@@ -587,24 +609,91 @@ async function executeKeepLatest(
   const ordered = [...tags].sort(
     (a, b) => Date.parse(b.uploadedAt) - Date.parse(a.uploadedAt),
   );
-  const kept = ordered.slice(0, opts.keepLatest);
-  const doomed = ordered.slice(opts.keepLatest);
 
-  const budgetWarning = orgBudgetWarning(opts.keepLatest, imageCount);
+  return {
+    tags,
+    kept: ordered.slice(0, keepLatest),
+    doomed: ordered.slice(keepLatest),
+    imageCount,
+    budgetWarning: orgBudgetWarning(keepLatest, imageCount),
+  };
+}
+
+/**
+ * `--keep-latest` under `--output json`.
+ *
+ * The deletions run *before* anything is printed. Reporting the doomed tags as
+ * `deleted` up front claimed successes that had not happened yet, and a later
+ * partial failure then printed a second document — two JSON values on one
+ * stdout, which no parser accepts. One document, after the fact.
+ */
+async function keepLatestAsJson(
+  provider: string,
+  organization: string,
+  image: string,
+  plan: KeepLatestPlan,
+  opts: { keepLatest: number; dryRun: boolean },
+): Promise<void> {
+  const { kept, doomed, imageCount, budgetWarning } = plan;
+  const outcome: DeletionOutcome =
+    opts.dryRun || doomed.length === 0
+      ? { deleted: [], failures: [] }
+      : await deleteTagsInSequence(provider, organization, image, doomed, true);
+
+  printJson({
+    imageName: image,
+    keepLatest: opts.keepLatest,
+    dryRun: opts.dryRun,
+    kept: kept.map((t) => t.tag),
+    deleted: outcome.deleted,
+    wouldDelete: opts.dryRun ? doomed.map((t) => t.tag) : undefined,
+    ...(outcome.failures.length > 0 ? { failures: outcome.failures } : {}),
+    ...(imageCount !== undefined ? { organizationImageCount: imageCount } : {}),
+    ...(budgetWarning ? { warning: budgetWarning } : {}),
+  });
+
+  // Same contract as the table path: a partial cleanup is a real failure for
+  // the caller, and `--output json` is the mode a release pipeline runs in —
+  // the mode where a silent zero exit is most expensive.
+  if (outcome.failures.length > 0) process.exitCode = 1;
+}
+
+function renderKeepLatestTable(
+  kept: ImageTagSummary[],
+  doomed: ImageTagSummary[],
+): string {
+  const table = createTable({ head: ["", "Tag", "Uploaded"] });
+  for (const tag of kept) {
+    table.push([ansis.green("keep"), sanitizeText(tag.tag), formatFriendlyDate(tag.uploadedAt)]);
+  }
+  for (const tag of doomed) {
+    table.push([ansis.red("delete"), sanitizeText(tag.tag), formatFriendlyDate(tag.uploadedAt)]);
+  }
+  return table.toString();
+}
+
+async function executeKeepLatest(
+  provider: string,
+  organization: string,
+  image: string,
+  opts: {
+    keepLatest: number;
+    dryRun: boolean;
+    skipConfirmation: boolean;
+    json: boolean;
+  },
+): Promise<void> {
+  const label = sanitizeText(image);
+  const plan = await planKeepLatest(
+    provider,
+    organization,
+    image,
+    opts.keepLatest,
+  );
+  const { tags, kept, doomed, budgetWarning } = plan;
 
   if (opts.json) {
-    printJson({
-      imageName: image,
-      keepLatest: opts.keepLatest,
-      dryRun: opts.dryRun,
-      kept: kept.map((t) => t.tag),
-      deleted: opts.dryRun ? [] : doomed.map((t) => t.tag),
-      wouldDelete: opts.dryRun ? doomed.map((t) => t.tag) : undefined,
-      ...(imageCount !== undefined ? { organizationImageCount: imageCount } : {}),
-      ...(budgetWarning ? { warning: budgetWarning } : {}),
-    });
-    if (opts.dryRun || doomed.length === 0) return;
-    await deleteTagsInSequence(provider, organization, image, doomed, true);
+    await keepLatestAsJson(provider, organization, image, plan, opts);
     return;
   }
 
@@ -624,15 +713,7 @@ async function executeKeepLatest(
   console.log(
     `\n${opts.dryRun ? "Would delete" : "Deleting"} ${ansis.bold(String(doomed.length))} of ${formatCount(tags.length)} ${pluralize("tag", tags.length)} on ${label}, keeping the ${formatCount(opts.keepLatest)} most recently uploaded:\n`,
   );
-
-  const table = createTable({ head: ["", "Tag", "Uploaded"] });
-  for (const tag of kept) {
-    table.push([ansis.green("keep"), sanitizeText(tag.tag), formatFriendlyDate(tag.uploadedAt)]);
-  }
-  for (const tag of doomed) {
-    table.push([ansis.red("delete"), sanitizeText(tag.tag), formatFriendlyDate(tag.uploadedAt)]);
-  }
-  console.log(table.toString());
+  console.log(renderKeepLatestTable(kept, doomed));
 
   if (opts.dryRun) {
     console.log(
@@ -651,7 +732,16 @@ async function executeKeepLatest(
     }
   }
 
-  await deleteTagsInSequence(provider, organization, image, doomed, false);
+  const outcome = await deleteTagsInSequence(
+    provider,
+    organization,
+    image,
+    doomed,
+    false,
+  );
+  // A partial cleanup is a real failure for the caller: the pipeline step that
+  // follows may still hit the cap.
+  if (outcome.failures.length > 0) process.exitCode = 1;
 }
 
 /**
@@ -666,25 +756,29 @@ async function executeKeepLatest(
  * command idempotent for a pipeline — a run that gives up at tag 3 of 80 leaves
  * the org no better off, and the next release hits the same wall.
  */
+type DeletionOutcome = {
+  deleted: string[];
+  failures: Array<{ tag: string; reason: string }>;
+};
+
 async function deleteTagsInSequence(
   provider: string,
   organization: string,
   image: string,
   tags: ImageTagSummary[],
   json: boolean,
-): Promise<void> {
+): Promise<DeletionOutcome> {
   const spinner = json
     ? undefined
     : ora(`Deleting 0/${tags.length} tags...`).start();
-  const failures: Array<{ tag: string; reason: string }> = [];
-  let deleted = 0;
+  const outcome: DeletionOutcome = { deleted: [], failures: [] };
 
   for (const [index, tag] of tags.entries()) {
     try {
       await SbomService.deleteImageTag(provider, organization, image, tag.tag);
-      deleted++;
+      outcome.deleted.push(tag.tag);
     } catch (err) {
-      failures.push({
+      outcome.failures.push({
         tag: tag.tag,
         reason: err instanceof Error ? err.message : "unknown error",
       });
@@ -692,29 +786,35 @@ async function deleteTagsInSequence(
     if (spinner) spinner.text = `Deleting ${index + 1}/${tags.length} tags...`;
   }
 
-  if (json) {
-    if (failures.length > 0) printJson({ deletedCount: deleted, failures });
-    return;
-  }
+  // Under `--output json` the caller owns stdout: it folds this outcome into
+  // the single document it prints once every request has finished. Nothing is
+  // reported here, because nothing here knows the run is over.
+  if (spinner) reportDeletions(spinner, image, tags.length, outcome);
 
+  return outcome;
+}
+
+function reportDeletions(
+  spinner: Ora,
+  image: string,
+  attempted: number,
+  { deleted, failures }: DeletionOutcome,
+): void {
   if (failures.length === 0) {
-    spinner!.succeed(
-      `Deleted ${ansis.bold(String(deleted))} ${pluralize("tag", deleted)} from ${sanitizeText(image)}.`,
+    spinner.succeed(
+      `Deleted ${ansis.bold(String(deleted.length))} ${pluralize("tag", deleted.length)} from ${sanitizeText(image)}.`,
     );
     return;
   }
 
-  spinner!.warn(
-    `Deleted ${deleted} of ${tags.length} ${pluralize("tag", tags.length)}; ${failures.length} failed.`,
+  spinner.warn(
+    `Deleted ${deleted.length} of ${attempted} ${pluralize("tag", attempted)}; ${failures.length} failed.`,
   );
   for (const failure of failures) {
     console.log(
       ansis.red(`  ${sanitizeText(failure.tag)}: ${sanitizeText(failure.reason)}`),
     );
   }
-  // A partial cleanup is a real failure for the caller: the pipeline step that
-  // follows may still hit the cap.
-  process.exitCode = 1;
 }
 
 /**

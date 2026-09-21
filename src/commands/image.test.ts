@@ -844,5 +844,38 @@ describe("image command", () => {
         organizationImageCount: 7,
       });
     });
+
+    it("outputs one JSON document naming the deletions that actually happened", async () => {
+      vi.mocked(SbomService.listImageTags).mockResolvedValue({
+        data: tagsUploadedOn([1, 2, 3]),
+        pagination: {},
+      } as any);
+      vi.mocked(SbomService.deleteImageTag)
+        .mockRejectedValueOnce(new Error("Conflict"))
+        .mockResolvedValueOnce(undefined as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "--output", "json",
+        "image", "gh", "test-org", "my-service",
+        "--delete", "--keep-latest", "1", "--skip-confirmation",
+      ]);
+
+      // One document, not two: the failure report used to be printed as a
+      // second JSON value on the same stdout.
+      const parsed = JSON.parse(getAllOutput());
+      expect(parsed).toMatchObject({
+        dryRun: false,
+        kept: ["1.0.3"],
+        // 1.0.2 was attempted and failed, so it is not among the deletions.
+        deleted: ["1.0.1"],
+        failures: [{ tag: "1.0.2", reason: "Conflict" }],
+      });
+      expect(parsed.wouldDelete).toBeUndefined();
+      // A release pipeline reading JSON must not see a clean exit after a
+      // partial cleanup.
+      expect(process.exitCode).toBe(1);
+      process.exitCode = 0;
+    });
   });
 });
