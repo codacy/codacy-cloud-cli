@@ -31,10 +31,6 @@ function mockImage(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function mockTagsResponse(total: number) {
-  return { data: [], pagination: { total } } as any;
-}
-
 describe("images command", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -42,14 +38,14 @@ describe("images command", () => {
     delete process.env.CODACY_PROJECT_TOKEN;
   });
 
-  it("lists images for an organization with tag counts", async () => {
+  it("lists images for an organization", async () => {
     vi.mocked(SbomService.listOrganizationImages).mockResolvedValue({
-      data: [mockImage(), mockImage({ imageName: "worker", latestTag: "sha-abc" })],
+      data: [
+        mockImage(),
+        mockImage({ imageName: "worker", latestTag: "sha-abc" }),
+      ],
       pagination: { total: 2 },
     } as any);
-    vi.mocked(SbomService.listImageTags)
-      .mockResolvedValueOnce(mockTagsResponse(85))
-      .mockResolvedValueOnce(mockTagsResponse(3));
 
     const program = createProgram();
     await program.parseAsync(["node", "test", "images", "gh", "test-org"]);
@@ -65,52 +61,29 @@ describe("images command", () => {
     expect(output).toContain("Found 2 images");
     expect(output).toContain("my-service");
     expect(output).toContain("worker");
-    expect(output).toContain("85");
     expect(output).toContain("1.2.3");
   });
 
-  it("asks for tag counts with limit 1, one request per image", async () => {
+  it("never fans out to the tags endpoint", async () => {
+    // The tag count is being added to `ImageSummary` server-side; this listing
+    // must stay one request. See the pending task in SPECS/README.md.
     vi.mocked(SbomService.listOrganizationImages).mockResolvedValue({
       data: [mockImage(), mockImage({ imageName: "worker" })],
       pagination: {},
     } as any);
-    vi.mocked(SbomService.listImageTags).mockResolvedValue(mockTagsResponse(1));
 
     const program = createProgram();
     await program.parseAsync(["node", "test", "images", "gh", "test-org"]);
-
-    expect(SbomService.listImageTags).toHaveBeenCalledTimes(2);
-    expect(SbomService.listImageTags).toHaveBeenCalledWith(
-      "gh",
-      "test-org",
-      "my-service",
-      undefined,
-      1,
-    );
-  });
-
-  it("skips the tag-count fan-out with --no-tag-counts", async () => {
-    vi.mocked(SbomService.listOrganizationImages).mockResolvedValue({
-      data: [mockImage()],
-      pagination: {},
-    } as any);
-
-    const program = createProgram();
-    await program.parseAsync([
-      "node", "test", "images", "gh", "test-org", "--no-tag-counts",
-    ]);
 
     expect(SbomService.listImageTags).not.toHaveBeenCalled();
     expect(getAllOutput()).not.toContain("Tags");
   });
 
-  it("renders a dim dash when a tag count is unavailable", async () => {
+  it("renders a dim dash for missing values", async () => {
     vi.mocked(SbomService.listOrganizationImages).mockResolvedValue({
       data: [mockImage({ latestTag: undefined, lastSbomGenerated: undefined })],
       pagination: {},
     } as any);
-    // A failed count must not take the whole listing down with it.
-    vi.mocked(SbomService.listImageTags).mockRejectedValue(new Error("boom"));
 
     const program = createProgram();
     await program.parseAsync(["node", "test", "images", "gh", "test-org"]);
@@ -131,7 +104,7 @@ describe("images command", () => {
 
     const program = createProgram();
     await program.parseAsync([
-      "node", "test", "images", "gh", "test-org", "--limit", "2", "--no-tag-counts",
+      "node", "test", "images", "gh", "test-org", "--limit", "2",
     ]);
 
     expect(SbomService.listOrganizationImages).toHaveBeenCalledTimes(2);
@@ -146,7 +119,7 @@ describe("images command", () => {
 
     const program = createProgram();
     await program.parseAsync([
-      "node", "test", "images", "gh", "test-org", "--limit", "99999", "--no-tag-counts",
+      "node", "test", "images", "gh", "test-org", "--limit", "99999",
     ]);
 
     // Page size stays 100 regardless; the cap shows up as the loop stopping.
@@ -167,23 +140,20 @@ describe("images command", () => {
     expect(getAllOutput()).toContain("No images found");
   });
 
-  it("outputs JSON with the tag count included", async () => {
+  it("outputs JSON", async () => {
     vi.mocked(SbomService.listOrganizationImages).mockResolvedValue({
       data: [mockImage()],
       pagination: {},
     } as any);
-    vi.mocked(SbomService.listImageTags).mockResolvedValue(mockTagsResponse(85));
 
     const program = createProgram();
     await program.parseAsync([
       "node", "test", "--output", "json", "images", "gh", "test-org",
     ]);
 
-    const parsed = JSON.parse(getAllOutput());
-    expect(parsed).toEqual([
+    expect(JSON.parse(getAllOutput())).toEqual([
       {
         imageName: "my-service",
-        tagCount: 85,
         latestTag: "1.2.3",
         lastSbomUploaded: "2025-06-14T10:00:00Z",
         lastSbomGenerated: "2025-06-14T09:00:00Z",
@@ -193,18 +163,20 @@ describe("images command", () => {
 
   it("neutralizes terminal escape sequences in image and tag names", async () => {
     vi.mocked(SbomService.listOrganizationImages).mockResolvedValue({
-      data: [mockImage({ imageName: "evil\u001b[31m", latestTag: "v\u001b]8;;x\u0007" })],
+      data: [
+        mockImage({
+          imageName: "evil\u001b[31m",
+          latestTag: "v\u001b]8;;x\u0007",
+        }),
+      ],
       pagination: {},
     } as any);
 
     const program = createProgram();
-    await program.parseAsync([
-      "node", "test", "images", "gh", "test-org", "--no-tag-counts",
-    ]);
+    await program.parseAsync(["node", "test", "images", "gh", "test-org"]);
 
     const output = getAllOutput();
     expect(output).not.toContain("evil\u001b[31m");
     expect(output).toContain("evil^[");
   });
-
 });

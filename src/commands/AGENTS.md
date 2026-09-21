@@ -473,22 +473,28 @@ the parts that constrain future edits:
   the repository-token whitelist, so both call `resolveAccountAuth(this, …)` and
   refuse before any request. Their refusal cases live in the cross-cutting
   `repository-token-refusals.test.ts`, not in their own suites.
-- **The Tags column costs one request per image.** `ImageSummary` has no tag
-  count, so `images` reads it from `listImageTags`'s `pagination.total` with
-  `limit: 1` — the cheapest shape that answers "how many". Bounded at
-  `TAG_COUNT_CONCURRENCY` (8); a failed or `total`-less lookup renders a dim `-`
-  rather than failing the listing; `-N, --no-tag-counts` opts out. Keep the
-  count out of the critical path — it must never be able to take the listing
-  down with it. `image --delete` reads the same `limit: 1` total to name the
-  count in its prompt, and skips the lookup entirely under `-y`.
+- **`images` must stay one request per page.** The tag count is the number an
+  org at the 1000-tag cap wants, but `ImageSummary` doesn't carry one and
+  deriving it costs an extra request per image. It is being added server-side
+  (pending task in `SPECS/README.md`) — don't reintroduce a client-side fan-out
+  to fake it in the meantime.
+- **`--delete` is the action, `--tag` is the scope.** Same split as
+  `issues --ignore` and its filters: one verb, narrowed by the same flag that
+  narrows the read. `--tag` alone shows that tag; `--delete` alone takes the
+  whole image; together they take one tag. Adding a second delete flag would
+  bring back the mutual-exclusion guard this shape exists to avoid.
+- **The single-tag lookup pages.** The tags endpoint has no per-tag filter, so
+  `--tag` without `--delete` pages the listing and matches exactly — the shape
+  `pull-request --issue <id>` uses. `--tag --delete` deliberately skips it: the
+  API 404s on a missing tag, which is the same answer for one fewer call.
 - **The metrics-wipe notice is temporary.** Deleting any SBOM currently
   zero-fills Container Scanning metrics for the whole organization until the
-  next nightly scan, so both deletes print `METRICS_WIPE_NOTICE` above the
+  next nightly scan, so both delete scopes print `METRICS_WIPE_NOTICE` above the
   confirmation. Delete the constant (and its test) once the backend fix ships.
   It is also why bulk tag cleanup (`--keep-latest`) is not here yet: a delete
   loop fires the wipe once per tag.
-- **`--delete` and `--delete-tag` refuse to combine** rather than picking one.
-  Their blast radii differ (whole image vs. one tag), so a silent winner is the
-  worst outcome.
+- **`describeTagCount` must never block a delete.** It exists only to make the
+  whole-image prompt concrete ("all 85 of its tags"); a failed or `total`-less
+  lookup falls back to vaguer wording rather than throwing, and `-y` skips it.
 - **Sanitize everything that came in with the upload** — image name, tag,
   environment, repository name are all user-controlled.

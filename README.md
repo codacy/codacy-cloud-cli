@@ -156,7 +156,7 @@ Supported providers: GitHub (`gh`), GitLab (`gl`), Bitbucket (`bb`).
 | `patterns [provider] [org] [repo] <tool>` | List patterns for a tool, or bulk enable/disable them |
 | `pattern [provider] [org] [repo] <tool> <id>` | Show a pattern, or enable, disable, or set parameters for it |
 | `images <provider> <org>` | List Docker images with SBOMs uploaded to an organization |
-| `image <provider> <org> <image>` | List an image's tags, or delete a tag or the whole image |
+| `image <provider> <org> <image>` | List an image's tags, show one tag, or delete a tag or the whole image |
 
 Run `codacy <command> --help` for full argument and option details for any command.
 

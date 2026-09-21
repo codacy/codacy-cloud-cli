@@ -16,9 +16,9 @@ Split into stacked PRs, because one piece is blocked on a backend fix:
 
 | PR | Scope | State |
 |---|---|---|
-| 1 | `images` (list) and `image` (list tags, `--delete-tag`, `--delete`) | this one |
+| 1 | `images` (list) and `image` (list tags, show a tag, `--delete` scoped by `--tag`) | this one |
 | 2 | `--upload` (`uploadImageSbom`) | follow-up |
-| 3 | bulk cleanup — `--delete-tags --keep-latest <n>` | **blocked** |
+| 3 | bulk cleanup — `--delete --keep-latest <n>` | **blocked** |
 
 **Why bulk cleanup is blocked.** Every single tag delete currently zero-fills
 Container Scanning metrics for the *whole organization*, across every
@@ -58,51 +58,61 @@ cross-cutting `repository-token-refusals.test.ts`, not per-command suites.
 | Option | Description |
 |---|---|
 | `-n, --limit <n>` | max images to return (default 100, max 1000) |
-| `-N, --no-tag-counts` | skip the per-image tag count |
 
-Columns: Image, Tags, Latest Tag, Last Upload, Last Generated.
+Columns: Image, Latest Tag, Last Upload, Last Generated. JSON projects the same
+four fields.
 
-**The Tags column costs one request per image.** `ImageSummary` carries no tag
-count, and the count is the whole point of the listing — "which image is holding
-85 tags" is the question a user at the cap is asking. So it is read from
-`listImageTags`'s `pagination.total` with `limit: 1`: the cheapest shape that
-answers "how many" without pulling pages of tags nobody asked to see. The
-fan-out is bounded at `TAG_COUNT_CONCURRENCY` (8), a failed or `total`-less
-lookup renders as a dim `-` rather than taking the listing down with it, and
-`-N, --no-tag-counts` opts out of it entirely.
-
-JSON: `imageName`, `tagCount`, `latestTag`, `lastSbomUploaded`,
-`lastSbomGenerated` (`pickDeep` drops undefined, so `tagCount` is absent under
-`--no-tag-counts`).
+**No tag count here, deliberately.** It is the number an org at the cap actually
+wants — "which image is holding 85 tags" — but `ImageSummary` doesn't carry one,
+and deriving it client-side costs one extra request per image. It is being added
+to the endpoint server-side instead (pending task in `SPECS/README.md`); when it
+lands it becomes a column with no extra call. Until then the per-image count is
+what `codacy image <image>` shows. Do not reintroduce a fan-out here.
 
 ## `image <provider> <organization> <image>` (alias `img`)
 
 | Option | Description |
 |---|---|
+| `-t, --tag <tag>` | act on a single tag instead of the whole image |
 | `-n, --limit <n>` | max tags to return (default 100, max 1000) |
-| `-t, --delete-tag <tag>` | delete the SBOM for a single tag |
-| `-D, --delete` | delete the image and all its SBOMs |
+| `-D, --delete` | delete the image's SBOMs, or just `--tag`'s |
 | `-y, --skip-confirmation` | skip the confirmation prompt |
 
-Default mode lists tags: Tag, Environment, Repository, Generated, Uploaded,
-Last Analysed. `scanStatus` is deprecated in favour of `lastAnalysedAt`, so only
-the replacement is rendered and projected into JSON.
+**`--delete` is the action, `--tag` is the scope** — the same split
+`issues --ignore` makes with its filters, where the flag that narrows what is
+acted on is the same flag that narrows what is shown. There is no
+`--delete-tag <tag>`: a second delete flag would mean two verbs whose blast radii
+differ, and the only way to make that safe is a mutual-exclusion error the user
+has to learn. Three modes fall out of the one flag:
 
-**`--delete` and `--delete-tag` cannot be combined.** They have different blast
-radii, so letting one silently win would be the worst outcome; the command
-throws before either is attempted.
+| Invocation | Result |
+|---|---|
+| (neither) | list every tag |
+| `--tag <tag>` | show that one tag's details |
+| `--delete` | delete the image and every SBOM under it |
+| `--tag <tag> --delete` | delete that tag's SBOM |
 
-**Confirmation.** Both deletes prompt via the shared `confirmAction`
-(`utils/prompt.ts`) and proceed only on an explicit `y`; `-y` bypasses it for
-CI. `confirmAction` returns `false` on a non-TTY, so a non-interactive run
-without `-y` aborts rather than deleting by accident — same rule as
-`issues --ignore`.
+List mode columns: Tag, Environment, Repository, Generated, Uploaded, Last
+Analysed. `scanStatus` is deprecated in favour of `lastAnalysedAt`, so only the
+replacement is rendered and projected.
 
-`--delete` fetches the tag count first (again `limit: 1`, for
+**The single-tag lookup pages.** The tags endpoint has no per-tag filter, so
+`--tag` (without `--delete`) pages the whole listing and matches exactly — the
+shape `pull-request --issue <id>` already uses to resolve a single item — and
+errors naming the tag when there is no match. JSON emits one object, not an
+array. `--tag --delete` skips the lookup entirely and deletes straight away; the
+API 404s on a tag that isn't there, which is the same answer at a lower cost.
+
+**Confirmation.** Both delete scopes prompt via the shared `confirmAction`
+(`utils/prompt.ts`) and proceed only on an explicit `y`; `-y` bypasses it for CI.
+`confirmAction` returns `false` on a non-TTY, so a non-interactive run without
+`-y` aborts rather than deleting by accident — same rule as `issues --ignore`.
+
+A whole-image `--delete` fetches the tag count first (`limit: 1`, for
 `pagination.total`) so the prompt can name how many tags are about to go — the
-number that decides whether this is routine cleanup or a mistake. A count
-lookup that fails must not block the delete, so the prompt just drops the count
-("all of its tags"). Under `-y` the lookup is skipped entirely.
+number that decides whether this is routine cleanup or a mistake. A count lookup
+that fails must not block the delete, so the prompt falls back to "all of its
+tags". Under `-y` the lookup is skipped entirely.
 
 ## Sanitization
 
@@ -113,5 +123,5 @@ through `sanitizeText()` before styling, per the CWE-150 rule in
 
 ## Tests
 
-`images.test.ts` (9) + `image.test.ts` (14) + 2 refusal cases in
-`repository-token-refusals.test.ts` = 25.
+`images.test.ts` (8) + `image.test.ts` (16) + 2 refusal cases in
+`repository-token-refusals.test.ts` = 26.

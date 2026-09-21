@@ -17,69 +17,9 @@ import { formatCount } from "../utils/formatting";
 import { SbomService } from "../api/client/services/SbomService";
 import type { ImageSummary } from "../api/client/models/ImageSummary";
 
-/**
- * How many tag-count lookups run at once. The listing itself is one request,
- * but the count is one extra request *per image* (see `fetchTagCounts`), so an
- * organization near the 1000-tag cap can easily have dozens. Bounded so the
- * command never opens an unbounded fan-out against the API.
- */
-const TAG_COUNT_CONCURRENCY = 8;
-
 /** Matches `findings` — the API's own page size, and its ceiling. */
 const MAX_LIMIT = 1000;
 const PAGE_SIZE = 100;
-
-export type ImageRow = ImageSummary & { tagCount?: number };
-
-/**
- * Number of tags per image.
- *
- * `ImageSummary` carries no tag count, and the count is the whole point of this
- * listing: the case this command exists for is an organization at the 1000-tag
- * cap trying to find *which* image is holding 85 stale tags. So it is read from
- * `listImageTags`'s `pagination.total` with `limit: 1` — the cheapest shape that
- * answers "how many", one small request per image rather than pulling pages of
- * tags nobody asked to see.
- *
- * A failed or `total`-less lookup resolves to `undefined` rather than throwing:
- * a missing count renders as a dim `-` and the rest of the row is still worth
- * showing. `-N, --no-tag-counts` skips the fan-out entirely.
- */
-async function fetchTagCounts(
-  provider: string,
-  organization: string,
-  images: ImageSummary[],
-): Promise<Array<number | undefined>> {
-  const counts: Array<number | undefined> = new Array(images.length);
-  let next = 0;
-
-  async function worker(): Promise<void> {
-    while (next < images.length) {
-      const index = next++;
-      try {
-        const response = await SbomService.listImageTags(
-          provider,
-          organization,
-          images[index].imageName,
-          undefined, // cursor
-          1,
-        );
-        counts[index] = response.pagination?.total;
-      } catch {
-        counts[index] = undefined;
-      }
-    }
-  }
-
-  await Promise.all(
-    Array.from(
-      { length: Math.min(TAG_COUNT_CONCURRENCY, images.length) },
-      worker,
-    ),
-  );
-
-  return counts;
-}
 
 export function registerImagesCommand(program: Command) {
   program
@@ -93,10 +33,6 @@ export function registerImagesCommand(program: Command) {
       `maximum number of images to return (default: ${PAGE_SIZE}, max: ${MAX_LIMIT})`,
       String(PAGE_SIZE),
     )
-    .option(
-      "-N, --no-tag-counts",
-      "skip the per-image tag count (one extra request per image)",
-    )
     .addOption(repositoryTokenOption())
     .addHelpText(
       "after",
@@ -104,14 +40,13 @@ export function registerImagesCommand(program: Command) {
 Examples:
   $ codacy-cloud-cli images gh my-org
   $ codacy-cloud-cli images gh my-org --limit 500
-  $ codacy-cloud-cli images gh my-org --no-tag-counts
   $ codacy-cloud-cli images gh my-org --output json`,
     )
     .action(async function (
       this: Command,
       provider: string,
       organization: string,
-      options: { limit: string; tagCounts: boolean },
+      options: { limit: string },
     ) {
       try {
         // Organization-level SBOM data: not on the repository-token whitelist
@@ -146,25 +81,13 @@ Examples:
 
         if (images.length > limit) images = images.slice(0, limit);
 
-        let counts: Array<number | undefined> = [];
-        if (options.tagCounts && images.length > 0) {
-          spinner.text = "Counting tags...";
-          counts = await fetchTagCounts(provider, organization, images);
-        }
-
         spinner.stop();
-
-        const rows: ImageRow[] = images.map((image, i) => ({
-          ...image,
-          tagCount: counts[i],
-        }));
 
         if (format === "json") {
           printJson(
-            rows.map((row) =>
-              pickDeep(row, [
+            images.map((image) =>
+              pickDeep(image, [
                 "imageName",
-                "tagCount",
                 "latestTag",
                 "lastSbomUploaded",
                 "lastSbomGenerated",
@@ -174,7 +97,7 @@ Examples:
           return;
         }
 
-        if (rows.length === 0) {
+        if (images.length === 0) {
           console.log(
             ansis.dim(
               "\nNo images found. Upload an SBOM for a Docker image to see it here.",
@@ -183,39 +106,34 @@ Examples:
           return;
         }
 
-        const imageTotal = total ?? rows.length;
+        const imageTotal = total ?? images.length;
         console.log(
           ansis.bold(
             `\nImages for ${organization} (${provider}) — Found ${formatCount(imageTotal)} ${pluralize("image", imageTotal)}\n`,
           ),
         );
 
-        const head = ["Image"];
-        if (options.tagCounts) head.push("Tags");
-        head.push("Latest Tag", "Last Upload", "Last Generated");
-        const table = createTable({ head });
+        // No tag count here: `ImageSummary` doesn't carry one, and deriving it
+        // would mean one extra request per image. It is being added server-side
+        // instead — see the pending task in SPECS/README.md. Until then, the
+        // per-image tag count is what `codacy image <image>` shows.
+        const table = createTable({
+          head: ["Image", "Latest Tag", "Last Upload", "Last Generated"],
+        });
 
-        for (const row of rows) {
+        for (const image of images) {
           // Image and tag names are user-supplied (they arrive with the SBOM
           // upload) and reach the terminal — neutralize before styling.
-          const cells: string[] = [sanitizeText(row.imageName)];
-          if (options.tagCounts) {
-            cells.push(
-              row.tagCount !== undefined
-                ? String(row.tagCount)
-                : ansis.dim("-"),
-            );
-          }
-          cells.push(
-            row.latestTag ? sanitizeText(row.latestTag) : ansis.dim("-"),
-            row.lastSbomUploaded
-              ? formatFriendlyDate(row.lastSbomUploaded)
+          table.push([
+            sanitizeText(image.imageName),
+            image.latestTag ? sanitizeText(image.latestTag) : ansis.dim("-"),
+            image.lastSbomUploaded
+              ? formatFriendlyDate(image.lastSbomUploaded)
               : ansis.dim("-"),
-            row.lastSbomGenerated
-              ? formatFriendlyDate(row.lastSbomGenerated)
+            image.lastSbomGenerated
+              ? formatFriendlyDate(image.lastSbomGenerated)
               : ansis.dim("-"),
-          );
-          table.push(cells);
+          ]);
         }
 
         console.log(table.toString());
@@ -227,7 +145,7 @@ Examples:
         );
 
         printPaginationWarning(
-          cursor ? { cursor, limit: rows.length } : undefined,
+          cursor ? { cursor, limit: images.length } : undefined,
           `Use --limit <n> (max ${MAX_LIMIT}) to fetch more.`,
         );
       } catch (err) {

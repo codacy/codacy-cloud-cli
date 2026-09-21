@@ -14,7 +14,7 @@ import {
 } from "../utils/output";
 import { confirmAction } from "../utils/prompt";
 import { sanitizeText } from "../utils/sanitize";
-import { formatCount } from "../utils/formatting";
+import { formatCount, printSection } from "../utils/formatting";
 import { SbomService } from "../api/client/services/SbomService";
 import type { ImageTagSummary } from "../api/client/models/ImageTagSummary";
 
@@ -38,21 +38,34 @@ const METRICS_WIPE_NOTICE =
 const ABORT_HINT =
   "Pass --skip-confirmation (-y) to bypass this prompt in CI or scripts.";
 
+const TAG_JSON_FIELDS = [
+  "imageName",
+  "tag",
+  "environment",
+  "repositoryId",
+  "repositoryName",
+  "generatedAt",
+  "uploadedAt",
+  // `scanStatus` is deprecated in favour of `lastAnalysedAt`, so only the
+  // replacement is projected.
+  "lastAnalysedAt",
+];
+
 export function registerImageCommand(program: Command) {
   program
     .command("image")
     .alias("img")
-    .description("List an image's tags, or delete a tag or the whole image")
+    .description("List an image's tags, show one tag, or delete them")
     .argument("<provider>", "git provider (gh, gl, or bb)")
     .argument("<organization>", "organization name")
     .argument("<image>", "Docker image name")
+    .option("-t, --tag <tag>", "act on a single tag instead of the whole image")
     .option(
       "-n, --limit <n>",
       `maximum number of tags to return (default: ${PAGE_SIZE}, max: ${MAX_LIMIT})`,
       String(PAGE_SIZE),
     )
-    .option("-t, --delete-tag <tag>", "delete the SBOM for a single tag")
-    .option("-D, --delete", "delete the image and all its SBOMs")
+    .option("-D, --delete", "delete the image's SBOMs, or just --tag's")
     .option("-y, --skip-confirmation", "skip the confirmation prompt")
     .addOption(repositoryTokenOption())
     .addHelpText(
@@ -61,7 +74,8 @@ export function registerImageCommand(program: Command) {
 Examples:
   $ codacy-cloud-cli image gh my-org my-service
   $ codacy-cloud-cli image gh my-org my-service --limit 500
-  $ codacy-cloud-cli image gh my-org my-service --delete-tag 1.2.3
+  $ codacy-cloud-cli image gh my-org my-service --tag 1.2.3
+  $ codacy-cloud-cli image gh my-org my-service --tag 1.2.3 --delete
   $ codacy-cloud-cli image gh my-org my-service --delete --skip-confirmation
   $ codacy-cloud-cli image gh my-org my-service --output json`,
     )
@@ -72,7 +86,7 @@ Examples:
       image: string,
       options: {
         limit: string;
-        deleteTag?: string;
+        tag?: string;
         delete?: boolean;
         skipConfirmation?: boolean;
       },
@@ -86,35 +100,23 @@ Examples:
         );
         const format = getOutputFormat(this);
 
-        // The two deletes have different blast radii, so silently letting one
-        // win would be the worst outcome. Refuse instead.
-        if (options.delete && options.deleteTag) {
-          throw new Error(
-            "--delete and --delete-tag cannot be combined. --delete removes the image and every tag; " +
-              "--delete-tag <tag> removes a single tag.",
-          );
-        }
-
-        if (options.deleteTag) {
-          await deleteSingleTag(
+        // `--delete` is the action and `--tag` is the scope, the same split
+        // `issues --ignore` makes with its filters: the flag that narrows what
+        // is acted on is the same flag that narrows what is shown.
+        if (options.delete) {
+          await executeDelete(
             provider,
             organization,
             image,
-            options.deleteTag,
+            options.tag,
             !!options.skipConfirmation,
             format === "json",
           );
           return;
         }
 
-        if (options.delete) {
-          await deleteWholeImage(
-            provider,
-            organization,
-            image,
-            !!options.skipConfirmation,
-            format === "json",
-          );
+        if (options.tag) {
+          await showTag(provider, organization, image, options.tag, format);
           return;
         }
 
@@ -123,6 +125,39 @@ Examples:
         handleError(err);
       }
     });
+}
+
+/**
+ * Every tag of an image, following the cursor until `limit` is reached (or to
+ * the end when `limit` is omitted — what the single-tag lookup needs, since the
+ * tag it wants may be on any page).
+ */
+async function fetchTags(
+  provider: string,
+  organization: string,
+  image: string,
+  limit?: number,
+): Promise<{ tags: ImageTagSummary[]; cursor?: string; total?: number }> {
+  let tags: ImageTagSummary[] = [];
+  let cursor: string | undefined;
+  let total: number | undefined;
+
+  do {
+    const response = await SbomService.listImageTags(
+      provider,
+      organization,
+      image,
+      cursor,
+      limit ? Math.min(limit, PAGE_SIZE) : PAGE_SIZE,
+    );
+    tags.push(...response.data);
+    cursor = response.pagination?.cursor;
+    total = response.pagination?.total ?? total;
+  } while (cursor && (limit === undefined || tags.length < limit));
+
+  if (limit !== undefined && tags.length > limit) tags = tags.slice(0, limit);
+
+  return { tags, cursor, total };
 }
 
 async function listTags(
@@ -138,52 +173,21 @@ async function listTags(
   );
 
   const spinner = ora("Fetching image tags...").start();
-
-  let tags: ImageTagSummary[] = [];
-  let cursor: string | undefined;
-  let total: number | undefined;
-
-  do {
-    const response = await SbomService.listImageTags(
-      provider,
-      organization,
-      image,
-      cursor,
-      Math.min(limit, PAGE_SIZE),
-    );
-    tags.push(...response.data);
-    cursor = response.pagination?.cursor;
-    total = response.pagination?.total ?? total;
-  } while (cursor && tags.length < limit);
-
-  if (tags.length > limit) tags = tags.slice(0, limit);
-
+  const { tags, cursor, total } = await fetchTags(
+    provider,
+    organization,
+    image,
+    limit,
+  );
   spinner.stop();
 
   if (format === "json") {
-    printJson(
-      tags.map((tag) =>
-        pickDeep(tag, [
-          "imageName",
-          "tag",
-          "environment",
-          "repositoryId",
-          "repositoryName",
-          "generatedAt",
-          "uploadedAt",
-          // `scanStatus` is deprecated in favour of `lastAnalysedAt`, so only
-          // the replacement is projected.
-          "lastAnalysedAt",
-        ]),
-      ),
-    );
+    printJson(tags.map((tag) => pickDeep(tag, TAG_JSON_FIELDS)));
     return;
   }
 
   if (tags.length === 0) {
-    console.log(
-      ansis.dim(`\nNo tags found for ${sanitizeText(image)}.`),
-    );
+    console.log(ansis.dim(`\nNo tags found for ${sanitizeText(image)}.`));
     return;
   }
 
@@ -223,7 +227,7 @@ async function listTags(
   console.log(table.toString());
   console.log(
     ansis.dim(
-      `\nDelete a tag with --delete-tag <tag>, or the whole image with --delete.`,
+      `\nDelete one tag with --tag <tag> --delete, or every tag with --delete.`,
     ),
   );
 
@@ -233,69 +237,73 @@ async function listTags(
   );
 }
 
-async function deleteSingleTag(
+/**
+ * One tag's details. The tags endpoint has no per-tag filter, so this pages
+ * through the whole listing and matches exactly — the same shape
+ * `pull-request --issue <id>` uses to resolve a single item.
+ */
+async function showTag(
   provider: string,
   organization: string,
   image: string,
   tag: string,
-  skipConfirmation: boolean,
-  json: boolean,
+  format: string,
 ): Promise<void> {
-  const label = `${sanitizeText(image)}:${sanitizeText(tag)}`;
+  const spinner = ora(`Looking for tag ${tag}...`).start();
+  const { tags } = await fetchTags(provider, organization, image);
+  spinner.stop();
 
-  if (!skipConfirmation) {
-    console.log(ansis.yellow(METRICS_WIPE_NOTICE));
-    const confirmed = await confirmAction(
-      `Delete the SBOM for ${label}? This cannot be undone.`,
+  const match = tags.find((t) => t.tag === tag);
+
+  if (!match) {
+    throw new Error(
+      `Tag '${tag}' not found on image '${image}'. ` +
+        `Run 'codacy image ${provider} ${organization} ${image}' to list its tags.`,
     );
-    if (!confirmed) {
-      console.log(ansis.dim(`Aborted — nothing was deleted. ${ABORT_HINT}`));
-      return;
-    }
   }
 
-  const spinner = ora(`Deleting ${label}...`).start();
-  await SbomService.deleteImageTag(provider, organization, image, tag);
-  spinner.succeed(`Deleted the SBOM for ${label}.`);
+  if (format === "json") {
+    printJson(pickDeep(match, TAG_JSON_FIELDS));
+    return;
+  }
 
-  if (json) printJson({ imageName: image, tag, deleted: true });
+  printSection(`${sanitizeText(image)}:${sanitizeText(match.tag)}`);
+
+  const table = createTable();
+  table.push(
+    ["Environment", match.environment ? sanitizeText(match.environment) : ansis.dim("-")],
+    ["Repository", match.repositoryName ? sanitizeText(match.repositoryName) : ansis.dim("-")],
+    ["Generated", match.generatedAt ? formatFriendlyDate(match.generatedAt) : ansis.dim("-")],
+    ["Uploaded", match.uploadedAt ? formatFriendlyDate(match.uploadedAt) : ansis.dim("-")],
+    [
+      "Last Analysed",
+      match.lastAnalysedAt ? formatFriendlyDate(match.lastAnalysedAt) : ansis.dim("-"),
+    ],
+  );
+  console.log(table.toString());
+  console.log(ansis.dim(`\nDelete this tag with --tag ${match.tag} --delete.`));
 }
 
-async function deleteWholeImage(
+/**
+ * `--delete`, scoped by `--tag` when it is given: one tag's SBOM, or the image
+ * and every SBOM under it.
+ */
+async function executeDelete(
   provider: string,
   organization: string,
   image: string,
+  tag: string | undefined,
   skipConfirmation: boolean,
   json: boolean,
 ): Promise<void> {
-  const label = sanitizeText(image);
+  const label = tag
+    ? `${sanitizeText(image)}:${sanitizeText(tag)}`
+    : sanitizeText(image);
 
   if (!skipConfirmation) {
-    // How many tags are about to go is the number that decides whether this is
-    // routine cleanup or a mistake, so it is fetched before asking. `limit: 1`
-    // is the cheapest shape that returns `pagination.total`; a lookup that
-    // fails or omits the total must not block the delete, so the prompt just
-    // drops the count.
-    const countSpinner = ora("Counting tags...").start();
-    let tagCount: number | undefined;
-    try {
-      const response = await SbomService.listImageTags(
-        provider,
-        organization,
-        image,
-        undefined, // cursor
-        1,
-      );
-      tagCount = response.pagination?.total;
-    } catch {
-      tagCount = undefined;
-    }
-    countSpinner.stop();
-
-    const scope =
-      tagCount !== undefined
-        ? `${label} and all ${formatCount(tagCount)} of its ${pluralize("tag", tagCount)}`
-        : `${label} and all of its tags`;
+    const scope = tag
+      ? `the SBOM for ${label}`
+      : `${label} and ${await describeTagCount(provider, organization, image)}`;
 
     console.log(ansis.yellow(METRICS_WIPE_NOTICE));
     const confirmed = await confirmAction(
@@ -308,8 +316,46 @@ async function deleteWholeImage(
   }
 
   const spinner = ora(`Deleting ${label}...`).start();
-  await SbomService.deleteImageSboms(provider, organization, image);
-  spinner.succeed(`Deleted ${label} and all of its SBOMs.`);
+  if (tag) {
+    await SbomService.deleteImageTag(provider, organization, image, tag);
+    spinner.succeed(`Deleted the SBOM for ${label}.`);
+  } else {
+    await SbomService.deleteImageSboms(provider, organization, image);
+    spinner.succeed(`Deleted ${label} and all of its SBOMs.`);
+  }
 
-  if (json) printJson({ imageName: image, deleted: true });
+  if (json) printJson({ imageName: image, ...(tag ? { tag } : {}), deleted: true });
+}
+
+/**
+ * How many tags a whole-image delete is about to take, for the prompt — the
+ * number that decides whether this is routine cleanup or a mistake. `limit: 1`
+ * is the cheapest shape that returns `pagination.total`; a lookup that fails or
+ * omits the total must not block the delete, so it falls back to the vaguer
+ * wording rather than throwing.
+ */
+async function describeTagCount(
+  provider: string,
+  organization: string,
+  image: string,
+): Promise<string> {
+  const spinner = ora("Counting tags...").start();
+  let count: number | undefined;
+  try {
+    const response = await SbomService.listImageTags(
+      provider,
+      organization,
+      image,
+      undefined, // cursor
+      1,
+    );
+    count = response.pagination?.total;
+  } catch {
+    count = undefined;
+  }
+  spinner.stop();
+
+  return count !== undefined
+    ? `all ${formatCount(count)} of its ${pluralize("tag", count)}`
+    : "all of its tags";
 }

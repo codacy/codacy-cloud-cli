@@ -151,29 +151,98 @@ describe("image command", () => {
     });
   });
 
-  describe("--delete-tag", () => {
-    it("confirms, warns about the metrics wipe, then deletes the tag", async () => {
-      const confirm = vi
-        .spyOn(prompt, "confirmAction")
-        .mockResolvedValue(true);
+  describe("--tag (no action)", () => {
+    it("shows one tag's details, paging until it is found", async () => {
+      vi.mocked(SbomService.listImageTags)
+        .mockResolvedValueOnce({
+          data: [mockTag({ tag: "1.2.2" })],
+          pagination: { cursor: "next" },
+        } as any)
+        .mockResolvedValueOnce({
+          data: [mockTag({ tag: "1.2.3", environment: "staging" })],
+          pagination: {},
+        } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "image", "gh", "test-org", "my-service", "--tag", "1.2.3",
+      ]);
+
+      // The tags endpoint has no per-tag filter, so the lookup keeps paging.
+      expect(SbomService.listImageTags).toHaveBeenCalledTimes(2);
+      const output = getAllOutput();
+      expect(output).toContain("my-service:1.2.3");
+      expect(output).toContain("staging");
+    });
+
+    it("errors when the tag does not exist", async () => {
+      const exit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit called");
+      });
+      vi.mocked(SbomService.listImageTags).mockResolvedValue({
+        data: [mockTag({ tag: "1.2.2" })],
+        pagination: {},
+      } as any);
+
+      const program = createProgram();
+      await expect(
+        program.parseAsync([
+          "node", "test", "image", "gh", "test-org", "my-service",
+          "--tag", "9.9.9",
+        ]),
+      ).rejects.toThrow("process.exit called");
+
+      const errors = (console.error as ReturnType<typeof vi.fn>).mock.calls
+        .flat()
+        .join("\n");
+      expect(errors).toContain("Tag '9.9.9' not found on image 'my-service'");
+      exit.mockRestore();
+    });
+
+    it("outputs a single object in JSON, not an array", async () => {
+      vi.mocked(SbomService.listImageTags).mockResolvedValue({
+        data: [mockTag()],
+        pagination: {},
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "--output", "json",
+        "image", "gh", "test-org", "my-service", "--tag", "1.2.3",
+      ]);
+
+      expect(JSON.parse(getAllOutput())).toMatchObject({
+        imageName: "my-service",
+        tag: "1.2.3",
+      });
+    });
+  });
+
+  describe("--delete --tag <tag>", () => {
+    it("confirms, warns about the metrics wipe, then deletes just that tag", async () => {
+      const confirm = vi.spyOn(prompt, "confirmAction").mockResolvedValue(true);
       vi.mocked(SbomService.deleteImageTag).mockResolvedValue(undefined as any);
 
       const program = createProgram();
       await program.parseAsync([
         "node", "test", "image", "gh", "test-org", "my-service",
-        "--delete-tag", "1.2.3",
+        "--tag", "1.2.3", "--delete",
       ]);
 
       expect(getAllOutput()).toContain(
         "zeroes Container Scanning metrics for the whole organization",
       );
-      expect(confirm).toHaveBeenCalledOnce();
+      expect(confirm).toHaveBeenCalledWith(
+        "Delete the SBOM for my-service:1.2.3? This cannot be undone.",
+      );
       expect(SbomService.deleteImageTag).toHaveBeenCalledWith(
         "gh",
         "test-org",
         "my-service",
         "1.2.3",
       );
+      // Scoped to a tag: the whole-image delete must never fire.
+      expect(SbomService.deleteImageSboms).not.toHaveBeenCalled();
     });
 
     it("deletes nothing when the confirmation is declined", async () => {
@@ -182,11 +251,11 @@ describe("image command", () => {
       const program = createProgram();
       await program.parseAsync([
         "node", "test", "image", "gh", "test-org", "my-service",
-        "--delete-tag", "1.2.3",
+        "--tag", "1.2.3", "--delete",
       ]);
 
       expect(SbomService.deleteImageTag).not.toHaveBeenCalled();
-      expect(getAllOutput()).toContain("Aborted — nothing was deleted.");
+      expect(getAllOutput()).toContain("nothing was deleted");
     });
 
     it("skips the prompt with --skip-confirmation", async () => {
@@ -196,7 +265,7 @@ describe("image command", () => {
       const program = createProgram();
       await program.parseAsync([
         "node", "test", "image", "gh", "test-org", "my-service",
-        "--delete-tag", "1.2.3", "--skip-confirmation",
+        "--tag", "1.2.3", "--delete", "--skip-confirmation",
       ]);
 
       expect(confirm).not.toHaveBeenCalled();
@@ -210,25 +279,21 @@ describe("image command", () => {
       const program = createProgram();
       await program.parseAsync([
         "node", "test", "image", "gh", "test-org", "my-service",
-        "--delete-tag", "1.2.3",
+        "--tag", "1.2.3", "--delete",
       ]);
 
       expect(SbomService.listImageTags).not.toHaveBeenCalled();
     });
   });
 
-  describe("--delete", () => {
+  describe("--delete (whole image)", () => {
     it("names the tag count in the confirmation, then deletes the image", async () => {
-      const confirm = vi
-        .spyOn(prompt, "confirmAction")
-        .mockResolvedValue(true);
+      const confirm = vi.spyOn(prompt, "confirmAction").mockResolvedValue(true);
       vi.mocked(SbomService.listImageTags).mockResolvedValue({
         data: [],
         pagination: { total: 85 },
       } as any);
-      vi.mocked(SbomService.deleteImageSboms).mockResolvedValue(
-        undefined as any,
-      );
+      vi.mocked(SbomService.deleteImageSboms).mockResolvedValue(undefined as any);
 
       const program = createProgram();
       await program.parseAsync([
@@ -250,15 +315,9 @@ describe("image command", () => {
     });
 
     it("still offers the delete when the tag count can't be fetched", async () => {
-      const confirm = vi
-        .spyOn(prompt, "confirmAction")
-        .mockResolvedValue(true);
-      vi.mocked(SbomService.listImageTags).mockRejectedValue(
-        new Error("boom"),
-      );
-      vi.mocked(SbomService.deleteImageSboms).mockResolvedValue(
-        undefined as any,
-      );
+      const confirm = vi.spyOn(prompt, "confirmAction").mockResolvedValue(true);
+      vi.mocked(SbomService.listImageTags).mockRejectedValue(new Error("boom"));
+      vi.mocked(SbomService.deleteImageSboms).mockResolvedValue(undefined as any);
 
       const program = createProgram();
       await program.parseAsync([
@@ -284,14 +343,12 @@ describe("image command", () => {
       ]);
 
       expect(SbomService.deleteImageSboms).not.toHaveBeenCalled();
-      expect(getAllOutput()).toContain("Aborted — nothing was deleted.");
+      expect(getAllOutput()).toContain("nothing was deleted");
     });
 
     it("skips both the count lookup and the prompt with --skip-confirmation", async () => {
       const confirm = vi.spyOn(prompt, "confirmAction");
-      vi.mocked(SbomService.deleteImageSboms).mockResolvedValue(
-        undefined as any,
-      );
+      vi.mocked(SbomService.deleteImageSboms).mockResolvedValue(undefined as any);
 
       const program = createProgram();
       await program.parseAsync([
@@ -303,29 +360,5 @@ describe("image command", () => {
       expect(SbomService.listImageTags).not.toHaveBeenCalled();
       expect(SbomService.deleteImageSboms).toHaveBeenCalledOnce();
     });
-  });
-
-  it("refuses --delete combined with --delete-tag, before deleting anything", async () => {
-    const exit = vi
-      .spyOn(process, "exit")
-      .mockImplementation(() => {
-        throw new Error("process.exit called");
-      });
-
-    const program = createProgram();
-    await expect(
-      program.parseAsync([
-        "node", "test", "image", "gh", "test-org", "my-service",
-        "--delete", "--delete-tag", "1.2.3",
-      ]),
-    ).rejects.toThrow("process.exit called");
-
-    expect(SbomService.deleteImageTag).not.toHaveBeenCalled();
-    expect(SbomService.deleteImageSboms).not.toHaveBeenCalled();
-    const errors = (console.error as ReturnType<typeof vi.fn>).mock.calls
-      .flat()
-      .join("\n");
-    expect(errors).toContain("--delete and --delete-tag cannot be combined");
-    exit.mockRestore();
   });
 });
