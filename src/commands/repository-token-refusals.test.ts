@@ -19,15 +19,19 @@ import { registerPullRequestsCommand } from "./pull-requests";
 import { registerIssueCommand } from "./issue";
 import { registerFindingsCommand } from "./findings";
 import { registerFindingCommand } from "./finding";
+import { registerImagesCommand } from "./images";
+import { registerImageCommand } from "./image";
 import { AccountService } from "../api/client/services/AccountService";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 import { RepositoryService } from "../api/client/services/RepositoryService";
 import { SecurityService } from "../api/client/services/SecurityService";
+import { SbomService } from "../api/client/services/SbomService";
 
 vi.mock("../api/client/services/AccountService");
 vi.mock("../api/client/services/AnalysisService");
 vi.mock("../api/client/services/RepositoryService");
 vi.mock("../api/client/services/SecurityService");
+vi.mock("../api/client/services/SbomService");
 vi.mock("../api/client/services/CoverageService");
 vi.mock("../api/client/services/FileService");
 vi.mock("../api/client/services/ToolsService");
@@ -99,6 +103,18 @@ const ACCOUNT_ONLY_COMMANDS = [
     register: registerFindingCommand,
     argv: ["finding", "gh", "test-org", "00000000-0000-0000-0000-000000000000"],
     neverCalled: () => SecurityService.getSecurityItem,
+  },
+  {
+    name: "images",
+    register: registerImagesCommand,
+    argv: ["images", "gh", "test-org"],
+    neverCalled: () => SbomService.listOrganizationImages,
+  },
+  {
+    name: "image",
+    register: registerImageCommand,
+    argv: ["image", "gh", "test-org", "my-service"],
+    neverCalled: () => SbomService.listImageTags,
   },
 ] as const;
 
