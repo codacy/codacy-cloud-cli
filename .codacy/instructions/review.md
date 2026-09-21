@@ -56,3 +56,17 @@ flag a finding when it points at a concrete defect.
 - Cross-references between `SPECS/*.md`, `AGENTS.md`, and `README.md` are often
   added in the **same** pull request as the file they point at. Verify the target
   is absent from the PR's own diff before reporting a broken reference.
+
+## Terminal output that looks like markup
+
+- Angle brackets in help text, hints and error messages are the conventional
+  CLI placeholder notation for an argument — `--tag <tag>`, `<image>`,
+  `codacy image <provider> <org> <image>`. Semgrep's
+  `html-in-template-string` reads them as HTML with interpolated variables;
+  nothing here reaches a browser, so those are false positives.
+- CWE-150 sanitization has a boundary worth checking before flagging a missing
+  `sanitizeText()`: values that came back from the **API** (tag, image,
+  environment and repository names on an `ImageTagSummary`, error bodies) are
+  the untrusted sink. A value the user typed on their own command line is not
+  one, and neither is the `console.log` boundary or the `--output json` path.
+  The list of sinks is in `AGENTS.md`.
