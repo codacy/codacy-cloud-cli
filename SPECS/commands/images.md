@@ -18,21 +18,16 @@ Split into stacked PRs, because one piece is blocked on a backend fix:
 |---|---|---|
 | 1 | `images` (list) and `image` (list tags, show a tag, `--delete` scoped by `--tag`) | done |
 | 2 | `--upload` (`uploadImageSbom`) | done |
-| 3 | bulk cleanup — `--delete --keep-latest <n>` | this one — **see the blocker below** |
+| 3 | bulk cleanup — `--delete --keep-latest <n>` | this one |
 
-**The bulk-cleanup blocker, unresolved as of 2026-09-21.** Every single tag
-delete currently zero-fills Container Scanning metrics for the *whole
-organization*, across every repository, healing only on the next nightly scan.
-`--keep-latest` deletes in a loop, so it fires that once per tag — 80 times for
-the org this exists for. OD-710 records the fix (Container Scanning Findings
-Integrity, milestone "Fix org-wide metrics wipe on image tag deletion") as
-"mostly landed"; nobody has confirmed it shipped. **PR 3 must not merge until
-someone does.** Single-tag and whole-image delete were safe to ship ahead of it
-and did, in PR 1.
-
-Every delete path prints a yellow notice above the confirmation saying the
-metrics will be zeroed and restored by the next nightly scan. Remove
-`METRICS_WIPE_NOTICE` and this section together when the fix is confirmed.
+**The bulk-cleanup blocker is resolved (2026-09-21).** Every tag delete used to
+zero-fill Container Scanning metrics for the *whole organization* until the next
+nightly scan, which is why `--keep-latest` — a delete loop — was held back while
+single-tag and whole-image delete shipped in PR 1. The backend fix
+([Fix org-wide metrics wipe on image tag deletion](https://linear.app/codacy/project/fix-org-wide-metrics-wipe-on-image-tag-deletion-197476700869/overview))
+is done, so the loop is safe and the warning notice that used to sit above every
+delete confirmation is gone. Deletes are still sequential, for the reasons in
+`deleteTagsInSequence`, but no longer because of this.
 
 ## API
 
@@ -113,12 +108,11 @@ errors naming the tag when there is no match. JSON emits one object, not an
 array. `--tag --delete` skips the lookup entirely and deletes straight away; the
 API 404s on a tag that isn't there, which is the same answer at a lower cost.
 
-**`--output json` owns stdout.** The metrics-wipe notice goes to stderr and a
-declined confirmation reports itself as `{deleted: false, aborted: true}`, so
-stdout carries exactly one JSON document and a pipeline reading it never has to
-skip prose.
+**`--output json` owns stdout.** A declined confirmation reports itself as
+`{deleted: false, aborted: true}`, so stdout carries exactly one JSON document
+and a pipeline reading it never has to skip prose.
 
-**Confirmation.** Both delete scopes prompt via the shared `confirmAction`
+**Confirmation.** Every delete scope prompts via the shared `confirmAction`
 (`utils/prompt.ts`) and proceed only on an explicit `y`; `-y` bypasses it for CI.
 `confirmAction` returns `false` on a non-TTY, so a non-interactive run without
 `-y` aborts rather than deleting by accident — same rule as `issues --ignore`.
@@ -196,8 +190,10 @@ upload-then-delete *fails at the cap* and can strand an org there
 uploads per release means when Codacy received the SBOM; `generatedAt` is when
 it was built, which can differ and is not what accumulates against the cap.
 
-**Deletes run sequentially.** Each one currently zero-fills organization-wide
-metrics, so firing dozens in parallel is the worst possible shape for it.
+**Deletes run sequentially.** Not for latency — a cleanup run happens before the
+upload, not in front of a waiting user — but because one request at a time is
+what makes "deleted 77 of 80, here are the 3 that failed" straightforward to
+report. (The original reason, the org-wide metrics wipe, is fixed.)
 
 **`--dry-run` is long-only** — a deliberate exception to the "every option gets
 a short flag" rule. Every free letter sits one shift-key from `-D, --delete`,

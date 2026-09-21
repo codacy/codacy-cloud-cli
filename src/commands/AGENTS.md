@@ -508,14 +508,12 @@ the parts that constrain future edits:
   resolve the open design question — see `SPECS/commands/images.md`.
 - **`--dry-run` is long-only on purpose.** Every free short letter sits one
   shift-key from `-D, --delete`, and that typo is the destructive one.
-- **The metrics-wipe notice is temporary.** Deleting any SBOM currently
-  zero-fills Container Scanning metrics for the whole organization until the
-  next nightly scan, so both delete scopes print `METRICS_WIPE_NOTICE` above the
-  confirmation. Delete the constant (and its test) once the backend fix ships.
-  It is also why bulk tag cleanup (`--keep-latest`) is not here yet: a delete
-  loop fires the wipe once per tag.
 - **`describeTagCount` must never block a delete.** It exists only to make the
   whole-image prompt concrete ("all 85 of its tags"); a failed or `total`-less
   lookup falls back to vaguer wording rather than throwing, and `-y` skips it.
+- **Deletes are sequential, and that is not about the metrics wipe any more.**
+  That defect is fixed; the shape stays because a cleanup run is not
+  latency-sensitive and one request at a time is what makes a partial-failure
+  report ("deleted 77 of 80") straightforward.
 - **Sanitize everything that came in with the upload** — image name, tag,
   environment, repository name are all user-controlled.

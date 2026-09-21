@@ -24,20 +24,6 @@ const MAX_LIMIT = 1000;
 const PAGE_SIZE = 100;
 
 /**
- * Printed before every delete confirmation.
- *
- * Deleting an image tag currently zero-fills Container Scanning metrics for the
- * *whole organization*, across every repository, until the next nightly scan
- * heals them. That is a surprising, org-wide side effect of what reads like a
- * per-image cleanup, so the user sees it before they answer — not afterwards in
- * a dashboard. (Tracked in "Fix org-wide metrics wipe on image tag deletion";
- * this notice comes out once that lands.)
- */
-const METRICS_WIPE_NOTICE =
-  "Note: deleting SBOM data temporarily zeroes Container Scanning metrics for the whole " +
-  "organization. They are restored by the next nightly scan.";
-
-/**
  * The organization-wide image-tag cap this CLI assumes when warning about
  * `--keep-latest`. It is **configuration, not a constant**
  * (`sbom.image.max-image-tags-per-org`, `reference.conf:115`; the test default
@@ -656,7 +642,6 @@ async function executeKeepLatest(
   }
 
   if (!opts.skipConfirmation) {
-    console.log(ansis.yellow(`\n${METRICS_WIPE_NOTICE}`));
     const confirmed = await confirmAction(
       `Delete ${doomed.length} ${pluralize("tag", doomed.length)} from ${label}? This cannot be undone.`,
     );
@@ -672,12 +657,14 @@ async function executeKeepLatest(
 /**
  * Delete tags one at a time, carrying on past a failure.
  *
- * Sequential rather than parallel: each delete currently zero-fills
- * organization-wide Container Scanning metrics (see {@link METRICS_WIPE_NOTICE}),
- * so firing dozens at once is the worst possible shape for it. Carrying on past
- * a failure is what makes the command idempotent for a pipeline — a run that
- * gives up at tag 3 of 80 leaves the org no better off, and the next release
- * hits the same wall.
+ * Sequential rather than parallel. The original reason — each delete zero-filled
+ * organization-wide Container Scanning metrics — is gone (fixed backend-side,
+ * 2026-09-21), but the shape is kept: a cleanup run is not latency-sensitive, it
+ * happens before the upload rather than in front of a waiting user, and one
+ * request at a time is what makes "deleted 77 of 80, here are the 3 that failed"
+ * straightforward to report. Carrying on past a failure is what makes the
+ * command idempotent for a pipeline — a run that gives up at tag 3 of 80 leaves
+ * the org no better off, and the next release hits the same wall.
  */
 async function deleteTagsInSequence(
   provider: string,
@@ -772,7 +759,6 @@ async function executeDelete(
       ? `the SBOM for ${label}`
       : `${label} and ${await describeTagCount(provider, organization, image)}`;
 
-    console.error(ansis.yellow(METRICS_WIPE_NOTICE));
     const confirmed = await confirmAction(
       `Delete ${scope}? This cannot be undone.`,
     );

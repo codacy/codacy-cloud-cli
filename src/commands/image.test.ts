@@ -228,7 +228,7 @@ describe("image command", () => {
   });
 
   describe("--delete --tag <tag>", () => {
-    it("confirms, warns about the metrics wipe, then deletes just that tag", async () => {
+    it("confirms, then deletes just that tag", async () => {
       const confirm = vi.spyOn(prompt, "confirmAction").mockResolvedValue(true);
       vi.mocked(SbomService.deleteImageTag).mockResolvedValue(undefined as any);
 
@@ -238,11 +238,6 @@ describe("image command", () => {
         "--tag", "1.2.3", "--delete",
       ]);
 
-      // stderr, not stdout: a warning is not part of the command's output, and
-      // under --output json stdout carries the JSON document and nothing else.
-      expect(errorOutput()).toContain(
-        "zeroes Container Scanning metrics for the whole organization",
-      );
       expect(confirm).toHaveBeenCalledWith(
         "Delete the SBOM for my-service:1.2.3? This cannot be undone.",
       );
