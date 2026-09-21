@@ -22,26 +22,57 @@ import { sanitizeText } from "./sanitize";
  */
 export function apiErrorDetails(body: unknown): string[] {
   if (body && typeof body === "object") {
-    const details: string[] = [];
-    const obj = body as Record<string, unknown>;
-    if (typeof obj.message === "string") {
-      details.push(obj.message);
-    }
-    if (Array.isArray(obj.errors)) {
-      for (const e of obj.errors) {
-        details.push(typeof e === "string" ? e : ((e as any)?.message ?? JSON.stringify(e)));
-      }
-    }
-    if (details.length === 0) {
-      const serialized = JSON.stringify(body);
-      if (serialized !== "{}" && serialized !== "null") {
-        details.push(serialized);
-      }
-    }
-    return details;
+    const details = objectDetails(body as Record<string, unknown>);
+    if (details.length > 0) return details;
+    return serializedBody(body);
   }
   if (typeof body === "string" && body.length > 0) {
     return [body];
+  }
+  return [];
+}
+
+function objectDetails(obj: Record<string, unknown>): string[] {
+  const details: string[] = [];
+  if (typeof obj.message === "string") {
+    details.push(obj.message);
+  }
+  if (Array.isArray(obj.errors)) {
+    for (const entry of obj.errors) {
+      const detail = errorEntryDetail(entry);
+      if (detail) details.push(detail);
+    }
+  }
+  return details;
+}
+
+/**
+ * One `errors` entry as a string, whatever shape it arrived in.
+ *
+ * The entries are not in the spec, so nothing guarantees them. A `message`
+ * that is a number used to reach the caller unconverted and `.trim()` threw
+ * there — an exception raised while reporting an API error, which loses the
+ * error the user was waiting to read. Every entry leaves here as a string, or
+ * as `""` for the ones with nothing to say (`undefined`, and the functions and
+ * symbols `JSON.stringify` declines to serialize).
+ */
+function errorEntryDetail(entry: unknown): string {
+  if (typeof entry === "string") return entry;
+
+  const message = (entry as { message?: unknown } | null | undefined)?.message;
+  if (typeof message === "string") return message;
+  if (typeof message === "number" || typeof message === "boolean") {
+    return String(message);
+  }
+
+  const serialized = JSON.stringify(entry);
+  return typeof serialized === "string" ? serialized : "";
+}
+
+function serializedBody(body: unknown): string[] {
+  const serialized = JSON.stringify(body);
+  if (serialized && serialized !== "{}" && serialized !== "null") {
+    return [serialized];
   }
   return [];
 }

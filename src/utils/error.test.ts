@@ -30,6 +30,21 @@ describe("apiErrorDetails", () => {
     ]);
   });
 
+  it("survives malformed errors entries instead of throwing over them", () => {
+    // Nothing guarantees the shape of these — they are not in the spec. A
+    // non-string `message` used to reach `formatError` unconverted and throw
+    // on `.trim()`, losing the API error the user was waiting to read.
+    expect(
+      apiErrorDetails({
+        errors: [{ message: 42 }, { message: null }, null, 7, [], undefined],
+      }),
+    ).toEqual(["42", '{"message":null}', "null", "7", "[]"]);
+
+    expect(() =>
+      formatError(apiError(400, "Bad Request", { errors: [{ message: 42 }] })),
+    ).not.toThrow();
+  });
+
   it("falls back to the serialized body when nothing is recognizable", () => {
     expect(apiErrorDetails({ code: 7 })).toEqual(['{"code":7}']);
   });
