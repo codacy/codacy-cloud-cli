@@ -364,6 +364,31 @@ function sbomContentType(file: string): string {
  * other side of the network. `--tag` is required because the API's upload is
  * per image *and* tag; there is no "untagged" SBOM to fall back to.
  */
+/**
+ * The SBOM's multipart part, read and validated locally first — a typo'd path
+ * or an empty file fails immediately with something actionable instead of a
+ * 400 from the other side of the network.
+ *
+ * `File` rather than a bare `Blob` so the part carries the real filename — a
+ * `Blob` is sent as `filename="blob"`, which tells the server (and anyone
+ * reading a request log) nothing. The generated client's `isBlob` accepts both.
+ */
+async function readSbomFile(file: string): Promise<File> {
+  let contents: Buffer;
+  try {
+    contents = await fs.readFile(file);
+  } catch {
+    throw new Error(`Could not read SBOM file '${file}'.`);
+  }
+  if (contents.length === 0) {
+    throw new Error(`SBOM file '${file}' is empty.`);
+  }
+
+  return new File([contents], path.basename(file), {
+    type: sbomContentType(file),
+  });
+}
+
 async function executeUpload(
   provider: string,
   organization: string,
@@ -382,26 +407,10 @@ async function executeUpload(
     );
   }
 
-  let contents: Buffer;
-  try {
-    contents = await fs.readFile(file);
-  } catch {
-    throw new Error(`Could not read SBOM file '${file}'.`);
-  }
-  if (contents.length === 0) {
-    throw new Error(`SBOM file '${file}' is empty.`);
-  }
+  const sbom = await readSbomFile(file);
 
   const label = `${sanitizeText(image)}:${sanitizeText(opts.tag)}`;
   const spinner = ora(`Uploading SBOM for ${label}...`).start();
-
-  // `File` rather than a bare `Blob` so the multipart part carries the real
-  // filename — a `Blob` is sent as `filename="blob"`, which tells the server
-  // (and anyone reading a request log) nothing. The generated client's
-  // `isBlob` accepts both.
-  const sbom = new File([contents], path.basename(file), {
-    type: sbomContentType(file),
-  });
 
   await SbomService.uploadImageSbom(provider, organization, {
     sbom,
@@ -411,7 +420,12 @@ async function executeUpload(
     ...(opts.environment ? { environment: opts.environment } : {}),
   });
 
-  spinner.succeed(`Uploaded ${path.basename(file)} for ${label}.`);
+  // Every value echoed back here reaches the terminal, so each one is
+  // neutralized — the filename as much as the image and tag, since all three
+  // are strings this process was handed rather than strings it chose.
+  spinner.succeed(
+    `Uploaded ${sanitizeText(path.basename(file))} for ${label}.`,
+  );
 
   if (opts.json) {
     printJson({
@@ -426,7 +440,7 @@ async function executeUpload(
 
   console.log(
     ansis.dim(
-      `\nRun 'codacy image ${provider} ${organization} ${image} --tag ${opts.tag}' to see it.`,
+      `\nRun 'codacy image ${provider} ${organization} ${sanitizeText(image)} --tag ${sanitizeText(opts.tag)}' to see it.`,
     ),
   );
 }
