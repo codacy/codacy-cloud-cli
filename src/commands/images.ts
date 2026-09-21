@@ -145,19 +145,24 @@ async function listImages(
   spinner.stop();
 
   if (format === "json") {
-    printJson(
-      images.map((image) =>
-        pickDeep(image, [
-          "imageName",
-          "latestTag",
-          "lastSbomUploaded",
-          "lastSbomGenerated",
-        ]),
-      ),
-    );
+    printJson(images.map(projectImage));
     return;
   }
 
+  printImages(provider, organization, images, total);
+
+  printPaginationWarning(
+    cursor ? { cursor, limit: images.length } : undefined,
+    `Use --limit <n> (max ${MAX_LIMIT}) to fetch more.`,
+  );
+}
+
+function printImages(
+  provider: string,
+  organization: string,
+  images: ImageSummary[],
+  total: number | undefined,
+): void {
   if (images.length === 0) {
     console.log(
       ansis.dim(
@@ -173,17 +178,20 @@ async function listImages(
       `\nImages for ${organization} (${provider}) — Found ${formatCount(imageTotal)} ${pluralize("image", imageTotal)}\n`,
     ),
   );
-
   console.log(renderImagesTable(images));
-
   console.log(
     ansis.dim(
       `\nRun 'codacy image ${provider} ${organization} <image>' to list and delete an image's tags.`,
     ),
   );
+}
 
-  printPaginationWarning(
-    cursor ? { cursor, limit: images.length } : undefined,
-    `Use --limit <n> (max ${MAX_LIMIT}) to fetch more.`,
-  );
+/** The fields `--output json` promises, and only those. */
+function projectImage(image: ImageSummary) {
+  return pickDeep(image, [
+    "imageName",
+    "latestTag",
+    "lastSbomUploaded",
+    "lastSbomGenerated",
+  ]);
 }
