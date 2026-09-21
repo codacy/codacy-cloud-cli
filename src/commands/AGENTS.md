@@ -493,6 +493,21 @@ the parts that constrain future edits:
   sent as a `File` (not a `Blob`) so the multipart part carries the real
   filename, with the media type inferred from the extension. `--upload` and
   `--delete` *are* refused together — two verbs, not two scopes.
+- **`--keep-latest <n>` is one more scope on `--delete`, not a subcommand.** The
+  design proposed `image delete-tags <image>` and left it to the builder;
+  `--delete` is the verb, `--tag` scopes to one tag and `--keep-latest` to all
+  but the newest n. Don't add a nested subcommand for it. `n` is **literal**
+  (the cleanup runs before the upload, so keeping 10 leaves 11 — do not make it
+  mean n-1), ordering is by `uploadedAt` (not `generatedAt` — "latest" is what
+  Codacy received), deletes are **sequential** and **continue past failures**
+  with a non-zero exit, and "nothing to delete" exits 0 because a pipeline runs
+  this every release.
+- **The org-budget warning must keep the image count next to `n`.** The cap is
+  org-wide over image × tag rows while `--keep-latest` is per image, so a
+  constant n is unsafe at scale. It warns and does not refuse, and it does not
+  resolve the open design question — see `SPECS/commands/images.md`.
+- **`--dry-run` is long-only on purpose.** Every free short letter sits one
+  shift-key from `-D, --delete`, and that typo is the destructive one.
 - **The metrics-wipe notice is temporary.** Deleting any SBOM currently
   zero-fills Container Scanning metrics for the whole organization until the
   next nightly scan, so both delete scopes print `METRICS_WIPE_NOTICE` above the
