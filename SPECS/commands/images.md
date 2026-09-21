@@ -103,6 +103,11 @@ errors naming the tag when there is no match. JSON emits one object, not an
 array. `--tag --delete` skips the lookup entirely and deletes straight away; the
 API 404s on a tag that isn't there, which is the same answer at a lower cost.
 
+**`--output json` owns stdout.** The metrics-wipe notice goes to stderr and a
+declined confirmation reports itself as `{deleted: false, aborted: true}`, so
+stdout carries exactly one JSON document and a pipeline reading it never has to
+skip prose.
+
 **Confirmation.** Both delete scopes prompt via the shared `confirmAction`
 (`utils/prompt.ts`) and proceed only on an explicit `y`; `-y` bypasses it for CI.
 `confirmAction` returns `false` on a non-TTY, so a non-interactive run without
