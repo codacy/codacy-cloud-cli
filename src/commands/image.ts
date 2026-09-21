@@ -1,3 +1,5 @@
+import { promises as fs } from "node:fs";
+import path from "node:path";
 import { Command } from "commander";
 import ora from "ora";
 import ansis from "ansis";
@@ -55,7 +57,7 @@ export function registerImageCommand(program: Command) {
   program
     .command("image")
     .alias("img")
-    .description("List an image's tags, show one tag, or delete them")
+    .description("List an image's tags, show one tag, or upload/delete SBOMs")
     .argument("<provider>", "git provider (gh, gl, or bb)")
     .argument("<organization>", "organization name")
     .argument("<image>", "Docker image name")
@@ -65,6 +67,12 @@ export function registerImageCommand(program: Command) {
       `maximum number of tags to return (default: ${PAGE_SIZE}, max: ${MAX_LIMIT})`,
       String(PAGE_SIZE),
     )
+    .option(
+      "-u, --upload <file>",
+      "upload an SBOM file (SPDX or CycloneDX) for --tag",
+    )
+    .option("-e, --environment <name>", "environment the image is deployed to (with --upload)")
+    .option("-r, --repository <name>", "repository to associate the upload with")
     .option("-D, --delete", "delete the image's SBOMs, or just --tag's")
     .option("-y, --skip-confirmation", "skip the confirmation prompt")
     .addOption(repositoryTokenOption())
@@ -75,6 +83,8 @@ Examples:
   $ codacy-cloud-cli image gh my-org my-service
   $ codacy-cloud-cli image gh my-org my-service --limit 500
   $ codacy-cloud-cli image gh my-org my-service --tag 1.2.3
+  $ codacy-cloud-cli image gh my-org my-service --tag 1.2.3 --upload ./sbom.json
+  $ codacy-cloud-cli image gh my-org my-service --tag 1.2.3 --upload ./sbom.json --environment production --repository my-repo
   $ codacy-cloud-cli image gh my-org my-service --tag 1.2.3 --delete
   $ codacy-cloud-cli image gh my-org my-service --delete --skip-confirmation
   $ codacy-cloud-cli image gh my-org my-service --output json`,
@@ -87,6 +97,9 @@ Examples:
       options: {
         limit: string;
         tag?: string;
+        upload?: string;
+        environment?: string;
+        repository?: string;
         delete?: boolean;
         skipConfirmation?: boolean;
       },
@@ -96,9 +109,28 @@ Examples:
         // (see SPECS/repository-tokens.md), so refuse before any request.
         resolveAccountAuth(
           this,
-          "it reads and deletes organization-level container image data",
+          "it reads, uploads and deletes organization-level container image data",
         );
         const format = getOutputFormat(this);
+
+        // Two different verbs, unlike `--delete`'s two scopes: asking for both
+        // in one invocation says nothing coherent about what should happen to
+        // the SBOM, so it is refused rather than ordered.
+        if (options.upload && options.delete) {
+          throw new Error(
+            "--upload and --delete cannot be combined: one adds an SBOM, the other removes it.",
+          );
+        }
+
+        if (options.upload) {
+          await executeUpload(provider, organization, image, options.upload, {
+            tag: options.tag,
+            environment: options.environment,
+            repositoryName: options.repository,
+            json: format === "json",
+          });
+          return;
+        }
 
         // `--delete` is the action and `--tag` is the scope, the same split
         // `issues --ignore` makes with its filters: the flag that narrows what
@@ -304,6 +336,98 @@ async function showTag(
   // SBOM-supplied value reaching the terminal — not just the ones in the table.
   console.log(
     ansis.dim(`\nDelete this tag with --tag ${sanitizeText(match.tag)} --delete.`),
+  );
+}
+
+/**
+ * Media type for the multipart part, from the file's extension. SPDX and
+ * CycloneDX both ship as JSON or XML, and nothing else is expected here — an
+ * unrecognized extension falls back to `application/octet-stream` and lets the
+ * API decide rather than guessing wrong in the request.
+ */
+function sbomContentType(file: string): string {
+  switch (path.extname(file).toLowerCase()) {
+    case ".json":
+      return "application/json";
+    case ".xml":
+      return "application/xml";
+    default:
+      return "application/octet-stream";
+  }
+}
+
+/**
+ * `--upload <file>`: push an SBOM for one image tag.
+ *
+ * The file is read and validated locally first, so a typo'd path or an empty
+ * file fails immediately with something actionable instead of a 400 from the
+ * other side of the network. `--tag` is required because the API's upload is
+ * per image *and* tag; there is no "untagged" SBOM to fall back to.
+ */
+async function executeUpload(
+  provider: string,
+  organization: string,
+  image: string,
+  file: string,
+  opts: {
+    tag?: string;
+    environment?: string;
+    repositoryName?: string;
+    json: boolean;
+  },
+): Promise<void> {
+  if (!opts.tag) {
+    throw new Error(
+      "--upload requires --tag <tag>: an SBOM is uploaded for one image tag.",
+    );
+  }
+
+  let contents: Buffer;
+  try {
+    contents = await fs.readFile(file);
+  } catch {
+    throw new Error(`Could not read SBOM file '${file}'.`);
+  }
+  if (contents.length === 0) {
+    throw new Error(`SBOM file '${file}' is empty.`);
+  }
+
+  const label = `${sanitizeText(image)}:${sanitizeText(opts.tag)}`;
+  const spinner = ora(`Uploading SBOM for ${label}...`).start();
+
+  // `File` rather than a bare `Blob` so the multipart part carries the real
+  // filename — a `Blob` is sent as `filename="blob"`, which tells the server
+  // (and anyone reading a request log) nothing. The generated client's
+  // `isBlob` accepts both.
+  const sbom = new File([contents], path.basename(file), {
+    type: sbomContentType(file),
+  });
+
+  await SbomService.uploadImageSbom(provider, organization, {
+    sbom,
+    imageName: image,
+    tag: opts.tag,
+    ...(opts.repositoryName ? { repositoryName: opts.repositoryName } : {}),
+    ...(opts.environment ? { environment: opts.environment } : {}),
+  });
+
+  spinner.succeed(`Uploaded ${path.basename(file)} for ${label}.`);
+
+  if (opts.json) {
+    printJson({
+      imageName: image,
+      tag: opts.tag,
+      ...(opts.repositoryName ? { repositoryName: opts.repositoryName } : {}),
+      ...(opts.environment ? { environment: opts.environment } : {}),
+      uploaded: true,
+    });
+    return;
+  }
+
+  console.log(
+    ansis.dim(
+      `\nRun 'codacy image ${provider} ${organization} ${image} --tag ${opts.tag}' to see it.`,
+    ),
   );
 }
 
