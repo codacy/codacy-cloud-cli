@@ -658,6 +658,18 @@ async function keepLatestAsJson(
   if (outcome.failures.length > 0) process.exitCode = 1;
 }
 
+/** The "what is about to happen" block: one sentence, then the keep/delete table. */
+function printKeepLatestPlan(
+  label: string,
+  { tags, kept, doomed }: KeepLatestPlan,
+  opts: { keepLatest: number; dryRun: boolean },
+): void {
+  console.log(
+    `\n${opts.dryRun ? "Would delete" : "Deleting"} ${ansis.bold(String(doomed.length))} of ${formatCount(tags.length)} ${pluralize("tag", tags.length)} on ${label}, keeping the ${formatCount(opts.keepLatest)} most recently uploaded:\n`,
+  );
+  console.log(renderKeepLatestTable(kept, doomed));
+}
+
 function renderKeepLatestTable(
   kept: ImageTagSummary[],
   doomed: ImageTagSummary[],
@@ -690,7 +702,7 @@ async function executeKeepLatest(
     image,
     opts.keepLatest,
   );
-  const { tags, kept, doomed, budgetWarning } = plan;
+  const { tags, doomed, budgetWarning } = plan;
 
   if (opts.json) {
     await keepLatestAsJson(provider, organization, image, plan, opts);
@@ -710,10 +722,7 @@ async function executeKeepLatest(
     return;
   }
 
-  console.log(
-    `\n${opts.dryRun ? "Would delete" : "Deleting"} ${ansis.bold(String(doomed.length))} of ${formatCount(tags.length)} ${pluralize("tag", tags.length)} on ${label}, keeping the ${formatCount(opts.keepLatest)} most recently uploaded:\n`,
-  );
-  console.log(renderKeepLatestTable(kept, doomed));
+  printKeepLatestPlan(label, plan, opts);
 
   if (opts.dryRun) {
     console.log(
@@ -722,14 +731,8 @@ async function executeKeepLatest(
     return;
   }
 
-  if (!opts.skipConfirmation) {
-    const confirmed = await confirmAction(
-      `Delete ${doomed.length} ${pluralize("tag", doomed.length)} from ${label}? This cannot be undone.`,
-    );
-    if (!confirmed) {
-      console.log(ansis.dim(`Aborted — nothing was deleted. ${ABORT_HINT}`));
-      return;
-    }
+  if (!(await confirmKeepLatest(label, doomed.length, opts.skipConfirmation))) {
+    return;
   }
 
   const outcome = await deleteTagsInSequence(
@@ -742,6 +745,23 @@ async function executeKeepLatest(
   // A partial cleanup is a real failure for the caller: the pipeline step that
   // follows may still hit the cap.
   if (outcome.failures.length > 0) process.exitCode = 1;
+}
+
+/** Whether to go ahead, printing the abort line when the answer is no. */
+async function confirmKeepLatest(
+  label: string,
+  count: number,
+  skipConfirmation: boolean,
+): Promise<boolean> {
+  if (skipConfirmation) return true;
+
+  const confirmed = await confirmAction(
+    `Delete ${count} ${pluralize("tag", count)} from ${label}? This cannot be undone.`,
+  );
+  if (!confirmed) {
+    console.log(ansis.dim(`Aborted — nothing was deleted. ${ABORT_HINT}`));
+  }
+  return confirmed;
 }
 
 /**
