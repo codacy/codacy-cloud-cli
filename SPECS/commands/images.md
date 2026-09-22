@@ -110,12 +110,17 @@ API 404s on a tag that isn't there, which is the same answer at a lower cost.
 **`--output json` owns stdout.** The metrics-wipe notice goes to stderr and a
 declined confirmation reports itself as `{deleted: false, aborted: true}`, so
 stdout carries exactly one JSON document and a pipeline reading it never has to
-skip prose.
+skip prose. The confirmation *question* goes to stderr for the same reason:
+`process.stdin.isTTY` is still true when stdout is a pipe, so a prompt written
+to stdout lands in the consumer's parser rather than in front of the user who
+has to answer it — `… --delete --output json | jq` failed on it.
 
 **Confirmation.** Both delete scopes prompt via the shared `confirmAction`
 (`utils/prompt.ts`) and proceed only on an explicit `y`; `-y` bypasses it for CI.
-`confirmAction` returns `false` on a non-TTY, so a non-interactive run without
-`-y` aborts rather than deleting by accident — same rule as `issues --ignore`.
+`confirmAction` returns `false` on a non-TTY **stdin**, so a non-interactive run
+without `-y` aborts rather than deleting by accident — same rule as
+`issues --ignore`. The prompt itself is written to stderr, so no output mode has
+to thread its format down into `utils/prompt.ts`.
 
 A whole-image `--delete` fetches the tag count first (`limit: 1`, for
 `pagination.total`) so the prompt can name how many tags are about to go — the
