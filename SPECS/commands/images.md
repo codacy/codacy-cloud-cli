@@ -16,8 +16,8 @@ Split into stacked PRs, because one piece is blocked on a backend fix:
 
 | PR | Scope | State |
 |---|---|---|
-| 1 | `images` (list) and `image` (list tags, show a tag, `--delete` scoped by `--tag`) | this one |
-| 2 | `--upload` (`uploadImageSbom`) | follow-up |
+| 1 | `images` (list) and `image` (list tags, show a tag, `--delete` scoped by `--tag`) | done |
+| 2 | `--upload` (`uploadImageSbom`) | this one |
 | 3 | bulk cleanup — `--delete --keep-latest <n>` | **blocked** |
 
 **Why bulk cleanup is blocked.** Every single tag delete currently zero-fills
@@ -43,7 +43,7 @@ All four operations already exist in the generated client
 | `deleteImageTag` | DELETE | `/organizations/{provider}/{org}/image-sboms/{imageName}/tags/{tag}` |
 | `deleteImageSboms` | DELETE | `/organizations/{provider}/{org}/image-sboms/{imageName}` |
 
-`uploadImageSbom` (POST `/image-sboms`, multipart) is left for PR 2.
+| `uploadImageSbom` | POST | `/organizations/{provider}/{org}/image-sboms` (multipart) |
 
 ## Tokens
 
@@ -75,6 +75,9 @@ what `codacy image <image>` shows. Do not reintroduce a fan-out here.
 |---|---|
 | `-t, --tag <tag>` | act on a single tag instead of the whole image |
 | `-n, --limit <n>` | max tags to return (default 100, max 1000) |
+| `-u, --upload <file>` | upload an SBOM file (SPDX or CycloneDX) for `--tag` |
+| `-e, --environment <name>` | environment the image is deployed to (with `--upload`) |
+| `-r, --repository <name>` | repository to associate the upload with |
 | `-D, --delete` | delete the image's SBOMs, or just `--tag`'s |
 | `-y, --skip-confirmation` | skip the confirmation prompt |
 
@@ -87,8 +90,9 @@ has to learn. Three modes fall out of the one flag:
 
 | Invocation | Result |
 |---|---|
-| (neither) | list every tag |
+| (no action) | list every tag |
 | `--tag <tag>` | show that one tag's details |
+| `--tag <tag> --upload <file>` | upload an SBOM for that tag |
 | `--delete` | delete the image and every SBOM under it |
 | `--tag <tag> --delete` | delete that tag's SBOM |
 
@@ -124,6 +128,38 @@ number that decides whether this is routine cleanup or a mistake. A count lookup
 that fails must not block the delete, so the prompt falls back to "all of its
 tags". Under `-y` the lookup is skipped entirely.
 
+### `--upload <file>`
+
+Uploads an SBOM (SPDX or CycloneDX) for one image tag.
+
+**`--tag` is required**, because the API's upload is keyed on image *and* tag —
+there is no untagged SBOM to fall back to. Refused with a message naming the
+flag, before the file is even read.
+
+**The file is validated locally first.** A missing/unreadable path and an empty
+file both fail immediately with something actionable, rather than as a 400 from
+the other side of the network.
+
+**Sent as a `File`, not a bare `Blob`**, so the multipart part carries the real
+filename — a `Blob` goes out as `filename="blob"`, which tells the server and
+anyone reading a request log nothing. The generated client's `isBlob` accepts
+both. The media type comes from the extension (`.json` → `application/json`,
+`.xml` → `application/xml`, anything else → `application/octet-stream`, letting
+the API decide rather than guessing wrong in the request).
+
+`--environment` and `--repository` are optional passthroughs to the API's
+`environment`/`repositoryName` fields, omitted from the form rather than sent as
+undefined.
+
+**`--upload` and `--delete` are refused together.** Unlike `--delete`'s two
+scopes, these are two different verbs — asking for both says nothing coherent
+about what should happen to the SBOM.
+
+**Account token, even in CI.** `uploadImageSbom` is not on the repository-token
+whitelist, which is awkward: uploading an SBOM from a pipeline is exactly where
+a project token would be natural. Logged in
+[missing-endpoints.md](../missing-endpoints.md) as a whitelist gap.
+
 ## Sanitization
 
 Image names, tags, environments and repository names all arrive with the SBOM
@@ -133,5 +169,5 @@ through `sanitizeText()` before styling, per the CWE-150 rule in
 
 ## Tests
 
-`images.test.ts` (8) + `image.test.ts` (16) + 2 refusal cases in
-`repository-token-refusals.test.ts` = 26.
+`images.test.ts` (8) + `image.test.ts` (25) + 2 refusal cases in
+`repository-token-refusals.test.ts` = 35.

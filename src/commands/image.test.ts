@@ -1,4 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { Command } from "commander";
 import { registerImageCommand } from "./image";
 import { SbomService } from "../api/client/services/SbomService";
@@ -386,6 +389,179 @@ describe("image command", () => {
       expect(confirm).not.toHaveBeenCalled();
       expect(SbomService.listImageTags).not.toHaveBeenCalled();
       expect(SbomService.deleteImageSboms).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe("--upload", () => {
+    let dir: string;
+    let sbomPath: string;
+
+    beforeEach(async () => {
+      dir = await fs.mkdtemp(path.join(os.tmpdir(), "codacy-sbom-"));
+      sbomPath = path.join(dir, "sbom.json");
+      await fs.writeFile(sbomPath, JSON.stringify({ bomFormat: "CycloneDX" }));
+      vi.mocked(SbomService.uploadImageSbom).mockResolvedValue(undefined as any);
+    });
+
+    afterEach(async () => {
+      await fs.rm(dir, { recursive: true, force: true });
+    });
+
+    it("uploads the file for the given tag", async () => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "image", "gh", "test-org", "my-service",
+        "--tag", "1.2.3", "--upload", sbomPath,
+      ]);
+
+      expect(SbomService.uploadImageSbom).toHaveBeenCalledOnce();
+      const [provider, org, formData] = vi.mocked(SbomService.uploadImageSbom)
+        .mock.calls[0];
+      expect(provider).toBe("gh");
+      expect(org).toBe("test-org");
+      expect(formData.imageName).toBe("my-service");
+      expect(formData.tag).toBe("1.2.3");
+      // Optional fields are omitted rather than sent as undefined.
+      expect(formData).not.toHaveProperty("environment");
+      expect(formData).not.toHaveProperty("repositoryName");
+    });
+
+    it("sends a File carrying the real filename and JSON media type", async () => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "image", "gh", "test-org", "my-service",
+        "--tag", "1.2.3", "--upload", sbomPath,
+      ]);
+
+      const sbom = vi.mocked(SbomService.uploadImageSbom).mock.calls[0][2]
+        .sbom as File;
+      // A bare Blob would be sent as filename="blob", which says nothing in a
+      // request log.
+      expect(sbom).toBeInstanceOf(File);
+      expect(sbom.name).toBe("sbom.json");
+      expect(sbom.type).toBe("application/json");
+      expect(await sbom.text()).toContain("CycloneDX");
+    });
+
+    it("passes --environment and --repository through", async () => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "image", "gh", "test-org", "my-service",
+        "--tag", "1.2.3", "--upload", sbomPath,
+        "--environment", "production", "--repository", "my-repo",
+      ]);
+
+      const formData = vi.mocked(SbomService.uploadImageSbom).mock.calls[0][2];
+      expect(formData.environment).toBe("production");
+      expect(formData.repositoryName).toBe("my-repo");
+    });
+
+    it("infers the XML media type from the extension", async () => {
+      const xmlPath = path.join(dir, "sbom.xml");
+      await fs.writeFile(xmlPath, "<bom/>");
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "image", "gh", "test-org", "my-service",
+        "--tag", "1.2.3", "--upload", xmlPath,
+      ]);
+
+      const sbom = vi.mocked(SbomService.uploadImageSbom).mock.calls[0][2]
+        .sbom as File;
+      expect(sbom.type).toBe("application/xml");
+    });
+
+    it("requires --tag, before reading anything", async () => {
+      const exit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit called");
+      });
+
+      const program = createProgram();
+      await expect(
+        program.parseAsync([
+          "node", "test", "image", "gh", "test-org", "my-service",
+          "--upload", sbomPath,
+        ]),
+      ).rejects.toThrow("process.exit called");
+
+      expect(SbomService.uploadImageSbom).not.toHaveBeenCalled();
+      expect(errorOutput()).toContain("--upload requires --tag <tag>");
+      exit.mockRestore();
+    });
+
+    it("fails locally on a missing file, without calling the API", async () => {
+      const exit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit called");
+      });
+
+      const program = createProgram();
+      await expect(
+        program.parseAsync([
+          "node", "test", "image", "gh", "test-org", "my-service",
+          "--tag", "1.2.3", "--upload", path.join(dir, "nope.json"),
+        ]),
+      ).rejects.toThrow("process.exit called");
+
+      expect(SbomService.uploadImageSbom).not.toHaveBeenCalled();
+      expect(errorOutput()).toContain("Could not read SBOM file");
+      exit.mockRestore();
+    });
+
+    it("fails locally on an empty file", async () => {
+      const exit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit called");
+      });
+      const emptyPath = path.join(dir, "empty.json");
+      await fs.writeFile(emptyPath, "");
+
+      const program = createProgram();
+      await expect(
+        program.parseAsync([
+          "node", "test", "image", "gh", "test-org", "my-service",
+          "--tag", "1.2.3", "--upload", emptyPath,
+        ]),
+      ).rejects.toThrow("process.exit called");
+
+      expect(SbomService.uploadImageSbom).not.toHaveBeenCalled();
+      expect(errorOutput()).toContain("is empty");
+      exit.mockRestore();
+    });
+
+    it("refuses --upload combined with --delete, before either happens", async () => {
+      const exit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit called");
+      });
+
+      const program = createProgram();
+      await expect(
+        program.parseAsync([
+          "node", "test", "image", "gh", "test-org", "my-service",
+          "--tag", "1.2.3", "--upload", sbomPath, "--delete",
+        ]),
+      ).rejects.toThrow("process.exit called");
+
+      expect(SbomService.uploadImageSbom).not.toHaveBeenCalled();
+      expect(SbomService.deleteImageTag).not.toHaveBeenCalled();
+      expect(errorOutput()).toContain(
+        "--upload and --delete cannot be combined",
+      );
+      exit.mockRestore();
+    });
+
+    it("outputs JSON confirming what was uploaded", async () => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "--output", "json",
+        "image", "gh", "test-org", "my-service",
+        "--tag", "1.2.3", "--upload", sbomPath, "--environment", "production",
+      ]);
+
+      expect(JSON.parse(getAllOutput())).toEqual({
+        imageName: "my-service",
+        tag: "1.2.3",
+        environment: "production",
+        uploaded: true,
+      });
     });
   });
 });

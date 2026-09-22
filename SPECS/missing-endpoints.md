@@ -20,7 +20,8 @@ otherwise repository-scoped work.
 | 4 | `searchRepositoryIgnoredIssues` | POST | `codacy issues --ignored` | Read-only, and a natural sibling of the already-whitelisted `searchRepositoryIssues`. |
 | 5 | `bulkIgnoreIssues` | POST | `codacy issues --ignore` | Write. Would let the auto-configuration flow ignore noisy issues instead of only disabling patterns. Note: a future read-only repository token must block this by operationId. |
 | 6 | `updateIssueState` | PATCH | `codacy issue --ignore/--unignore` | Same category as #5, single-issue. |
-| 7 | `listCoverageReports` | GET | The coverage-expectation suffix on `codacy repository`'s Analysis row | Lowest value of the reads: it affects one optional suffix and has **zero** JSON impact (no coverage key is projected). Listed for completeness. |
+| 7 | `uploadImageSbom` | POST | `codacy image --upload` from CI | Write, and the odd one out on this list: it is organization-scoped like the rest of `SbomService`, but it is the one image operation a *pipeline* runs, and pipelines are exactly where a repository token is the natural credential (the coverage reporter already reads `CODACY_PROJECT_TOKEN` there). The upload already names a `repositoryName`, so a repository-scoped token has an obvious meaning for it. Needs a decision from the API owners rather than an assumption. |
+| 8 | `listCoverageReports` | GET | The coverage-expectation suffix on `codacy repository`'s Analysis row | Lowest value of the reads: it affects one optional suffix and has **zero** JSON impact (no coverage key is projected). Listed for completeness. |
 
 ## Deliberately out of scope
 

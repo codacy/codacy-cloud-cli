@@ -487,6 +487,12 @@ the parts that constrain future edits:
   `--tag` without `--delete` pages the listing and matches exactly — the shape
   `pull-request --issue <id>` uses. `--tag --delete` deliberately skips it: the
   API 404s on a missing tag, which is the same answer for one fewer call.
+- **`--upload` requires `--tag`, and validates the file before the request.**
+  The API keys an upload on image *and* tag, so there is no untagged fallback;
+  an unreadable or empty file fails locally rather than as a remote 400. It is
+  sent as a `File` (not a `Blob`) so the multipart part carries the real
+  filename, with the media type inferred from the extension. `--upload` and
+  `--delete` *are* refused together — two verbs, not two scopes.
 - **The metrics-wipe notice is temporary.** Deleting any SBOM currently
   zero-fills Container Scanning metrics for the whole organization until the
   next nightly scan, so both delete scopes print `METRICS_WIPE_NOTICE` above the
