@@ -5,7 +5,7 @@ import ora, { type Ora } from "ora";
 import ansis from "ansis";
 import pluralize from "pluralize";
 import { repositoryTokenOption, resolveAccountAuth } from "../utils/auth";
-import { handleError } from "../utils/error";
+import { errorReason, handleError } from "../utils/error";
 import {
   createTable,
   formatFriendlyDate,
@@ -842,8 +842,12 @@ async function deleteTagsInSequence(
       outcome.deleted.push(tag.tag);
     } catch (err) {
       outcome.failures.push({
+        // errorReason, not err.message: for an ApiError the latter is the
+        // generated client's static status table, so every failure in the
+        // report read "Bad Request". This loop is the one place that formats
+        // an API error without going through handleError.
         tag: tag.tag,
-        reason: err instanceof Error ? err.message : "unknown error",
+        reason: errorReason(err),
       });
     }
     if (spinner) spinner.text = `Deleting ${index + 1}/${tags.length} tags...`;

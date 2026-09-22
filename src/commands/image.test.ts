@@ -5,6 +5,7 @@ import path from "node:path";
 import { Command } from "commander";
 import { registerImageCommand } from "./image";
 import { SbomService } from "../api/client/services/SbomService";
+import { ApiError } from "../api/client/core/ApiError";
 import * as prompt from "../utils/prompt";
 
 vi.mock("../api/client/services/SbomService");
@@ -909,6 +910,42 @@ describe("image command", () => {
 
     // A dry run has nothing to confirm, and neither does a run with nothing
     // doomed — prompting there would be a question with no consequence.
+    // The existing failure test rejects with a plain Error, which masks this:
+    // for an ApiError, `err.message` is the generated client's static status
+    // table, so every failure in the report read "Bad Request" — on the one
+    // path that swallows errors instead of routing them through handleError.
+    it("reports the API's message for a failed tag, not the status name", async () => {
+      vi.mocked(SbomService.listImageTags).mockResolvedValue({
+        data: tagsUploadedOn([1, 2, 3]),
+        pagination: {},
+      } as any);
+      vi.mocked(SbomService.deleteImageTag).mockRejectedValueOnce(
+        new ApiError(
+          { method: "DELETE", url: "/x" } as any,
+          {
+            url: "/x",
+            ok: false,
+            status: 400,
+            statusText: "Bad Request",
+            body: { message: "Tag 1.0.2 is referenced by an active scan" },
+          } as any,
+          "Bad Request",
+        ),
+      );
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "--output", "json",
+        "image", "gh", "test-org", "my-service",
+        "--delete", "--keep-latest", "1", "--skip-confirmation",
+      ]);
+
+      expect(JSON.parse(getAllOutput()).failures).toEqual([
+        { tag: "1.0.2", reason: "Tag 1.0.2 is referenced by an active scan" },
+      ]);
+      process.exitCode = 0;
+    });
+
     it("does not prompt under --output json when nothing will be deleted", async () => {
       vi.mocked(SbomService.listImageTags).mockResolvedValue({
         data: tagsUploadedOn([1, 2, 3]),
