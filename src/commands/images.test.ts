@@ -81,14 +81,28 @@ describe("images command", () => {
 
   it("renders a dim dash for missing values", async () => {
     vi.mocked(SbomService.listOrganizationImages).mockResolvedValue({
-      data: [mockImage({ latestTag: undefined, lastSbomGenerated: undefined })],
+      data: [
+        mockImage({
+          latestTag: undefined,
+          lastSbomUploaded: undefined,
+          lastSbomGenerated: undefined,
+        }),
+      ],
       pagination: {},
     } as any);
 
     const program = createProgram();
     await program.parseAsync(["node", "test", "images", "gh", "test-org"]);
 
-    expect(getAllOutput()).toContain("my-service");
+    const output = getAllOutput();
+    expect(output).toContain("my-service");
+    // The dash is the assertion: without it the three empty cells render as
+    // the literal "undefined" (or as nothing at all), which is what this test
+    // exists to catch. The image name carries a dash of its own, so it comes
+    // out of the row before the dashes are counted.
+    expect(output).not.toContain("undefined");
+    const row = output.split("\n").find((line) => line.includes("my-service"))!;
+    expect(row.replace("my-service", "").match(/-/g) ?? []).toHaveLength(3);
   });
 
   it("paginates up to --limit and warns when more remain", async () => {
@@ -112,19 +126,39 @@ describe("images command", () => {
   });
 
   it("caps --limit at 1000", async () => {
-    vi.mocked(SbomService.listOrganizationImages).mockResolvedValue({
-      data: [mockImage()],
-      pagination: {},
-    } as any);
+    // A server that never stops handing out cursors: the only thing that ends
+    // this loop is the clamp. Asserting the page size instead would pass for
+    // any limit >= 100 and prove nothing about MAX_LIMIT.
+    //
+    // The ceiling is what makes a broken clamp *fail* rather than hang — with
+    // MAX_LIMIT gone the loop runs 1000 times against this mock, and a test
+    // that times out reads as flake rather than as the regression it is.
+    let pages = 0;
+    vi.mocked(SbomService.listOrganizationImages).mockImplementation(
+      async () => {
+        if (++pages > 20) {
+          throw new Error(
+            `paged ${pages} times — the --limit clamp at ${1000} is not stopping the loop`,
+          );
+        }
+        return {
+          data: Array.from({ length: 100 }, (_, i) =>
+            mockImage({ imageName: `svc-${i}` }),
+          ),
+          pagination: { cursor: "next", total: 99999 },
+        } as any;
+      },
+    );
 
     const program = createProgram();
     await program.parseAsync([
       "node", "test", "images", "gh", "test-org", "--limit", "99999",
     ]);
 
-    // Page size stays 100 regardless; the cap shows up as the loop stopping.
-    expect(SbomService.listOrganizationImages).toHaveBeenCalledWith(
-      "gh", "test-org", undefined, 100,
+    // 1000 clamped / 100 per page. Without the clamp this runs 1000 times.
+    expect(SbomService.listOrganizationImages).toHaveBeenCalledTimes(10);
+    expect(SbomService.listOrganizationImages).toHaveBeenLastCalledWith(
+      "gh", "test-org", "next", 100,
     );
   });
 
