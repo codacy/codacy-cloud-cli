@@ -135,7 +135,7 @@ describe("images command", () => {
     // that times out reads as flake rather than as the regression it is.
     let pages = 0;
     vi.mocked(SbomService.listOrganizationImages).mockImplementation(
-      async () => {
+      (async () => {
         if (++pages > 20) {
           throw new Error(
             `paged ${pages} times — the --limit clamp at ${1000} is not stopping the loop`,
@@ -147,7 +147,7 @@ describe("images command", () => {
           ),
           pagination: { cursor: "next", total: 99999 },
         } as any;
-      },
+      }) as any,
     );
 
     const program = createProgram();
