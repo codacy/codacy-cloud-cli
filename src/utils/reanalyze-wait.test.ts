@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   snapshotFromOverview,
   snapshotFromPrIssues,
@@ -303,6 +303,106 @@ describe("pollForAnalysis", () => {
     });
 
     expect(result.timedOut).toBe(true);
+  });
+
+  describe("non-TTY progress line", () => {
+    let writeSpy: ReturnType<typeof vi.spyOn>;
+    beforeEach(() => {
+      writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    });
+    afterEach(() => {
+      writeSpy.mockRestore();
+    });
+
+    // Advances `now()` by one poll interval (10s) per call, still waiting to start.
+    function tickingClock(pollMs: number) {
+      let t = 0;
+      return () => {
+        const v = t;
+        t += pollMs;
+        return v;
+      };
+    }
+
+    it("prints nothing before 60s have elapsed", async () => {
+      const spinner = { text: "" };
+      const now = tickingClock(10_000);
+      const getStatus = vi.fn<() => Promise<AnalysisStatus>>().mockResolvedValue({
+        startedAnalysis: "2025-06-15T10:01:00Z", // after t0, never ends
+        endedAnalysis: "2025-06-15T10:00:00Z",
+      });
+
+      await pollForAnalysis(getStatus, {
+        triggeredAt: T0,
+        spinner,
+        maxWaitMs: 15_000,
+        now,
+        isTTY: false,
+      });
+
+      expect(writeSpy).not.toHaveBeenCalled();
+    });
+
+    it("prints a line at 60s and 120s with status=waiting while not yet started", async () => {
+      const spinner = { text: "" };
+      const now = tickingClock(10_000);
+      // No startedAnalysis at all: the reanalysis hasn't been picked up yet.
+      const getStatus = vi.fn<() => Promise<AnalysisStatus>>().mockResolvedValue({});
+
+      await pollForAnalysis(getStatus, {
+        triggeredAt: T0,
+        spinner,
+        maxWaitMs: 200_000,
+        now,
+        isTTY: false,
+      });
+
+      const lines = writeSpy.mock.calls.map((c: any) => c[0]);
+      expect(lines).toContain("elapsed 1m, status=waiting\n");
+      expect(lines).toContain("elapsed 2m, status=waiting\n");
+    });
+
+    it("prints status=inProgress once the analysis has started", async () => {
+      const spinner = { text: "" };
+      const now = tickingClock(10_000);
+      const getStatus = vi
+        .fn<() => Promise<AnalysisStatus>>()
+        // in progress from the very first check onward
+        .mockResolvedValue({
+          startedAnalysis: "2025-06-15T10:01:00Z", // after t0
+          endedAnalysis: "2025-06-15T10:00:00Z", // not finished
+        });
+
+      await pollForAnalysis(getStatus, {
+        triggeredAt: T0,
+        spinner,
+        maxWaitMs: 70_000,
+        now,
+        isTTY: false,
+      });
+
+      const lines = writeSpy.mock.calls.map((c: any) => c[0]);
+      expect(lines).toContain("elapsed 1m, status=inProgress\n");
+    });
+
+    it("prints nothing when stderr is a TTY", async () => {
+      const spinner = { text: "" };
+      const now = tickingClock(10_000);
+      const getStatus = vi.fn<() => Promise<AnalysisStatus>>().mockResolvedValue({
+        startedAnalysis: "2025-06-15T10:01:00Z",
+        endedAnalysis: "2025-06-15T10:00:00Z",
+      });
+
+      await pollForAnalysis(getStatus, {
+        triggeredAt: T0,
+        spinner,
+        maxWaitMs: 130_000,
+        now,
+        isTTY: true,
+      });
+
+      expect(writeSpy).not.toHaveBeenCalled();
+    });
   });
 });
 
