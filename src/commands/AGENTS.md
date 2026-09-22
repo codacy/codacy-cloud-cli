@@ -313,6 +313,16 @@ match. Modify-mode refusals (`pattern --enable/--disable/--parameter`, and
 `patterns --enable-all/--disable-all`) print the reason and `process.exit(1)`;
 info/list displays print a notice and exit 0.
 
+`tools --import` applies the same coding-standard awareness instead of refusing:
+the bulk pattern reset (`updateRepositoryToolPatterns({enabled: false})`) and
+`configureTool` silently leave standard-enforced tools/patterns enabled
+server-side, so `buildImportPreview` drops locked tools from the disable set
+and fetches enabled patterns per reconfigured tool, reporting each as an
+`ImportSkip` in `preview.skipped` (shown in the preview and in `--output json`)
+rather than re-enabling them. `--force` bypasses all of it — it unlinks
+standards first in `executeImport`, so nothing is locked by the time tools are
+reconfigured.
+
 ## Reanalyze and wait (`utils/reanalyze-wait.ts`)
 
 Shared by the `repository` and `pull-request` `--reanalyze-and-wait` (`-w`) modes.

@@ -188,21 +188,31 @@ Examples:
 
           spinner.stop();
 
+          const isJson = getOutputFormat(this) === "json";
+
           // Build and display preview
-          const preview = buildImportPreview(
+          const preview = await buildImportPreview(
+            provider,
+            organization,
+            repository,
             config,
             repoToolsResponse.data,
             allTools,
             repoResponse.data.repository.standards,
             resolvedPath,
             localToolIds,
+            Boolean(opts.force),
           );
 
           guardForceUnlink(auth, preview.standards.length, Boolean(opts.force));
 
-          printImportPreview(preview, repository, Boolean(opts.force), {
-            canUnlinkStandards: auth.kind === "account-token",
-          });
+          printImportPreview(
+            preview,
+            repository,
+            Boolean(opts.force),
+            { canUnlinkStandards: auth.kind === "account-token" },
+            isJson ? console.error : console.log,
+          );
 
           // Confirm
           if (!opts.skipApproval) {
@@ -215,7 +225,7 @@ Examples:
             }
           }
 
-          console.log();
+          if (!isJson) console.log();
           const execSpinner = ora("Applying configuration...").start();
           const result = await executeImport(
             provider,
@@ -229,6 +239,11 @@ Examples:
           );
 
           execSpinner.stop();
+
+          if (isJson) {
+            printJson(result);
+            return;
+          }
 
           if (result.failed.length === 0) {
             console.log(
@@ -248,6 +263,9 @@ Examples:
                 ),
               );
             }
+          }
+          if (result.skipped.length > 0) {
+            console.log(ansis.dim(`  ${result.skipped.length} skipped.`));
           }
           return;
         }

@@ -276,6 +276,10 @@ describe("tools command", () => {
       fs.writeFileSync(tmpConfigPath, configContent);
       vi.mocked(AnalysisService.updateRepositoryToolPatterns).mockResolvedValue(undefined as any);
       vi.mocked(AnalysisService.configureTool).mockResolvedValue(undefined as any);
+      vi.mocked(AnalysisService.listRepositoryToolPatterns).mockResolvedValue({
+        data: [],
+        pagination: undefined,
+      } as any);
       vi.spyOn(importConfig, "fetchAllTools").mockResolvedValue([
         {
           uuid: "uuid-eslint",
@@ -417,6 +421,86 @@ describe("tools command", () => {
       const output = getAllOutput();
       expect(output).toContain("error");
     });
+
+    it("should print only the JSON object to stdout with --output json", async () => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "--output", "json", "tools", "gh", "test-org", "test-repo",
+        "--import", tmpConfigPath, "-y",
+      ]);
+
+      const calls = (console.log as ReturnType<typeof vi.fn>).mock.calls;
+      expect(calls).toHaveLength(1);
+      const parsed = JSON.parse(calls[0][0] as string);
+      expect(parsed).toHaveProperty("succeeded");
+      expect(parsed).toHaveProperty("failed");
+      expect(parsed).toHaveProperty("skipped");
+    });
+
+    // ── Standard-enforced skips ─────────────────────────────────────────
+
+    /** A tool enabled by a coding standard, not present in the config file. */
+    function mockStandardLockedCheckov() {
+      vi.mocked(AnalysisService.listRepositoryTools).mockResolvedValue({
+        data: [
+          {
+            uuid: "uuid-checkov",
+            name: "Checkov",
+            isClientSide: false,
+            settings: {
+              isEnabled: true,
+              followsStandard: true,
+              isCustom: false,
+              hasConfigurationFile: false,
+              usesConfigurationFile: false,
+              enabledBy: [{ id: 1, name: "Security" }],
+            },
+          },
+        ],
+        pagination: undefined,
+      } as any);
+      vi.spyOn(importConfig, "fetchAllTools").mockResolvedValue([
+        { uuid: "uuid-eslint", name: "ESLint", shortName: "eslint", prefix: "ESLint_", languages: [], clientSide: false, standalone: false, configurable: true },
+        { uuid: "uuid-checkov", name: "Checkov", shortName: "checkov", languages: [], clientSide: false, standalone: false, configurable: true },
+      ] as any);
+      vi.spyOn(importConfig, "getLocalSupportedToolIds").mockResolvedValue(["ESLint", "checkov"]);
+    }
+
+    it("should print a skipped block in the preview and count it in the summary", async () => {
+      mockStandardLockedCheckov();
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "tools", "gh", "test-org", "test-repo",
+        "--import", tmpConfigPath, "-y",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).toContain("Skipped (enforced by coding standard):");
+      expect(output).toContain("Checkov (Security)");
+      expect(output).toContain("1 skipped.");
+      // Never sent a disable for the standard-locked tool.
+      expect(AnalysisService.configureTool).not.toHaveBeenCalledWith(
+        "gh", "test-org", "test-repo", "uuid-checkov", { enabled: false },
+      );
+    });
+
+    it("should include skipped in --output json", async () => {
+      mockStandardLockedCheckov();
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "--output", "json", "tools", "gh", "test-org", "test-repo",
+        "--import", tmpConfigPath, "-y",
+      ]);
+
+      const calls = (console.log as ReturnType<typeof vi.fn>).mock.calls;
+      const jsonCall = calls.map((c) => c[0]).find((c) => typeof c === "string" && c.trim().startsWith("{"));
+      const parsed = JSON.parse(jsonCall as string);
+      expect(parsed.skipped).toEqual([
+        { tool: "Checkov", standards: ["Security"], reason: "enforced by coding standard" },
+      ]);
+    });
   });
 
   describe("auto-detect from git remote", () => {
@@ -453,6 +537,10 @@ describe("tools command", () => {
         undefined as any,
       );
       vi.mocked(AnalysisService.configureTool).mockResolvedValue(undefined as any);
+      vi.mocked(AnalysisService.listRepositoryToolPatterns).mockResolvedValue({
+        data: [],
+        pagination: undefined,
+      } as any);
       vi.spyOn(importConfig, "fetchAllTools").mockResolvedValue([
         {
           uuid: "uuid-eslint",

@@ -70,7 +70,7 @@ else it is rejected as if no token had been sent.
 | operationId | Method | Used by this CLI |
 |---|---|---|
 | `listRepositoryTools` | GET | `tools`, `tool`, `patterns`, `pattern`, `issues -O` |
-| `listRepositoryToolPatterns` | GET | `patterns`, `pattern`, `issues -O` |
+| `listRepositoryToolPatterns` | GET | `patterns`, `pattern`, `issues -O`, `tools --import` |
 | `getRepositoryWithAnalysis` | GET | `repository`, `tools --import` |
 | `issuesOverview` | POST | `repository`, `issues -O` |
 | `searchRepositoryIssues` | POST | `issues` |

@@ -16,6 +16,15 @@ vi.mock("../api/client/services/AnalysisService");
 vi.mock("../api/client/services/ToolsService");
 vi.mock("../api/client/services/CodingStandardsService");
 
+// Default: no currently-enabled patterns, so buildImportPreview's per-tool pattern fetch is a no-op unless a test overrides it.
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(AnalysisService.listRepositoryToolPatterns).mockResolvedValue({
+    data: [],
+    pagination: undefined,
+  } as any);
+});
+
 // ─── Test fixtures ────────────────────────────────────────────────────
 
 function makeTool(overrides: Partial<Tool> & { uuid: string; name: string; shortName: string }): Tool {
@@ -35,20 +44,38 @@ function makeTool(overrides: Partial<Tool> & { uuid: string; name: string; short
   } as Tool;
 }
 
-function makeRepoTool(uuid: string, name: string, isEnabled: boolean): AnalysisTool {
+function makeRepoTool(
+  uuid: string,
+  name: string,
+  isEnabled: boolean,
+  enabledBy: { id: number; name: string }[] = [],
+): AnalysisTool {
   return {
     uuid,
     name,
     isClientSide: false,
     settings: {
       isEnabled,
-      enabledBy: [],
+      enabledBy,
       hasConfigurationFile: false,
       usesConfigurationFile: false,
       followsStandard: false,
       isCustom: false,
     },
   } as AnalysisTool;
+}
+
+function makeConfiguredPattern(
+  id: string,
+  enabledBy: { id: number; name: string }[] = [],
+): any {
+  return {
+    patternDefinition: { id },
+    enabled: true,
+    isCustom: false,
+    parameters: [],
+    enabledBy,
+  };
 }
 
 const eslintTool = makeTool({ uuid: "uuid-eslint", name: "ESLint", shortName: "eslint", prefix: "ESLint_" });
@@ -159,7 +186,7 @@ describe("resolveToolId", () => {
 // ─── buildImportPreview ───────────────────────────────────────────────
 
 describe("buildImportPreview", () => {
-  it("should categorize tools correctly with local CLI info", () => {
+  it("should categorize tools correctly with local CLI info", async () => {
     const repoTools: AnalysisTool[] = [
       makeRepoTool("uuid-eslint", "ESLint", true),
       makeRepoTool("uuid-checkov", "Checkov", true),
@@ -182,7 +209,7 @@ describe("buildImportPreview", () => {
     };
 
     const localToolIds = ["ESLint", "Pylint", "checkov", "remarklint"];
-    const preview = buildImportPreview(config, repoTools, allTools, [], "/test/path", localToolIds);
+    const preview = await buildImportPreview("gh", "org", "repo", config, repoTools, allTools, [], "/test/path", localToolIds);
 
     // ESLint is enabled and in config → reconfigure
     expect(preview.toolsToReconfigure).toHaveLength(1);
@@ -202,7 +229,7 @@ describe("buildImportPreview", () => {
     expect(preview.unresolvedTools).toHaveLength(0);
   });
 
-  it("should leave cloud-only tools unchanged", () => {
+  it("should leave cloud-only tools unchanged", async () => {
     const sonarSharpTool = makeTool({ uuid: "uuid-sonarsharp", name: "SonarSharp", shortName: "sonarsharp", prefix: "SonarSharp_" });
     const extendedAllTools = [...allTools, sonarSharpTool];
 
@@ -228,7 +255,7 @@ describe("buildImportPreview", () => {
 
     // Local CLI supports ESLint and Checkov but NOT SonarSharp
     const localToolIds = ["ESLint", "checkov"];
-    const preview = buildImportPreview(config, repoTools, extendedAllTools, [], "/test/path", localToolIds);
+    const preview = await buildImportPreview("gh", "org", "repo", config, repoTools, extendedAllTools, [], "/test/path", localToolIds);
 
     // ESLint is in config → reconfigure
     expect(preview.toolsToReconfigure).toHaveLength(1);
@@ -243,7 +270,7 @@ describe("buildImportPreview", () => {
     expect(preview.cloudOnlyTools[0].name).toBe("SonarSharp");
   });
 
-  it("should not disable any tools when local CLI is unavailable", () => {
+  it("should not disable any tools when local CLI is unavailable", async () => {
     const repoTools: AnalysisTool[] = [
       makeRepoTool("uuid-eslint", "ESLint", true),
       makeRepoTool("uuid-checkov", "Checkov", true),
@@ -264,7 +291,7 @@ describe("buildImportPreview", () => {
     };
 
     // null = local CLI not available
-    const preview = buildImportPreview(config, repoTools, allTools, [], "/test/path", null);
+    const preview = await buildImportPreview("gh", "org", "repo", config, repoTools, allTools, [], "/test/path", null);
 
     expect(preview.toolsToDisable).toHaveLength(0);
     expect(preview.cloudOnlyTools).toHaveLength(0);
@@ -272,7 +299,7 @@ describe("buildImportPreview", () => {
     expect(preview.toolsToReconfigure).toHaveLength(1);
   });
 
-  it("should report unresolved tools", () => {
+  it("should report unresolved tools", async () => {
     const config: CodacyConfig = {
       version: 1,
       metadata: {
@@ -287,11 +314,11 @@ describe("buildImportPreview", () => {
       ],
     };
 
-    const preview = buildImportPreview(config, [], allTools, [], "/test/path");
+    const preview = await buildImportPreview("gh", "org", "repo", config, [], allTools, [], "/test/path");
     expect(preview.unresolvedTools).toEqual(["nonexistent_tool"]);
   });
 
-  it("should include standards in preview", () => {
+  it("should include standards in preview", async () => {
     const standards = [{ id: 1, name: "Security" }, { id: 2, name: "OWASP" }];
     const config: CodacyConfig = {
       version: 1,
@@ -305,8 +332,104 @@ describe("buildImportPreview", () => {
       tools: [],
     };
 
-    const preview = buildImportPreview(config, [], allTools, standards, "/test/path");
+    const preview = await buildImportPreview("gh", "org", "repo", config, [], allTools, standards, "/test/path");
     expect(preview.standards).toHaveLength(2);
+  });
+
+  // ── Standard-enforced skips ───────────────────────────────────────────
+
+  it("should drop a standard-enforced tool from the disable set and report it as skipped", async () => {
+    const repoTools: AnalysisTool[] = [
+      makeRepoTool("uuid-checkov", "Checkov", true, [{ id: 1, name: "Security" }]),
+    ];
+    const config: CodacyConfig = {
+      version: 1,
+      metadata: { repositoryId: null, repositoryName: null, createdAt: "", updatedAt: "", languages: [] },
+      tools: [],
+    };
+
+    const preview = await buildImportPreview(
+      "gh", "org", "repo", config, repoTools, allTools, [], "/test/path", ["checkov"],
+    );
+
+    expect(preview.toolsToDisable).toHaveLength(0);
+    expect(preview.skipped).toEqual([
+      { tool: "Checkov", standards: ["Security"], reason: "enforced by coding standard" },
+    ]);
+  });
+
+  it("should keep a standard-enforced tool in the disable set and skip nothing when force is true", async () => {
+    const repoTools: AnalysisTool[] = [
+      makeRepoTool("uuid-checkov", "Checkov", true, [{ id: 1, name: "Security" }]),
+    ];
+    const config: CodacyConfig = {
+      version: 1,
+      metadata: { repositoryId: null, repositoryName: null, createdAt: "", updatedAt: "", languages: [] },
+      tools: [],
+    };
+
+    const preview = await buildImportPreview(
+      "gh", "org", "repo", config, repoTools, allTools, [], "/test/path", ["checkov"], true,
+    );
+
+    expect(preview.toolsToDisable).toHaveLength(1);
+    expect(preview.toolsToDisable[0].name).toBe("Checkov");
+    expect(preview.skipped).toEqual([]);
+    expect(AnalysisService.listRepositoryToolPatterns).not.toHaveBeenCalled();
+  });
+
+  it("should keep a standard-enforced pattern enabled and report it as skipped", async () => {
+    vi.mocked(AnalysisService.listRepositoryToolPatterns).mockResolvedValue({
+      data: [
+        makeConfiguredPattern("p-locked", [{ id: 2, name: "OWASP" }]),
+        makeConfiguredPattern("p-unlocked"),
+      ],
+      pagination: undefined,
+    } as any);
+
+    const repoTools: AnalysisTool[] = [makeRepoTool("uuid-eslint", "ESLint", true)];
+    const config: CodacyConfig = {
+      version: 1,
+      metadata: { repositoryId: null, repositoryName: null, createdAt: "", updatedAt: "", languages: [] },
+      tools: [{ toolId: "ESLint", patterns: [{ patternId: "p1" }] }],
+    };
+
+    const preview = await buildImportPreview("gh", "org", "repo", config, repoTools, allTools, [], "/test/path");
+
+    expect(AnalysisService.listRepositoryToolPatterns).toHaveBeenCalledWith(
+      "gh", "org", "repo", "uuid-eslint",
+      undefined, undefined, undefined, undefined, undefined,
+      true, undefined, undefined, undefined, undefined, 100,
+    );
+    expect(preview.skipped).toEqual([
+      { tool: "ESLint", patternId: "p-locked", standards: ["OWASP"], reason: "enforced by coding standard" },
+    ]);
+  });
+
+  it("should not fetch patterns for tools that are enabled, not reconfigured", async () => {
+    const repoTools: AnalysisTool[] = [makeRepoTool("uuid-pylint", "Pylint", false)];
+    const config: CodacyConfig = {
+      version: 1,
+      metadata: { repositoryId: null, repositoryName: null, createdAt: "", updatedAt: "", languages: [] },
+      tools: [{ toolId: "Pylint", patterns: [{ patternId: "p1" }] }],
+    };
+
+    await buildImportPreview("gh", "org", "repo", config, repoTools, allTools, [], "/test/path");
+
+    expect(AnalysisService.listRepositoryToolPatterns).not.toHaveBeenCalled();
+  });
+
+  it("should not fetch patterns for a reconfigured tool using a local configuration file", async () => {
+    const repoTools: AnalysisTool[] = [makeRepoTool("uuid-eslint", "ESLint", true)];
+    const config: CodacyConfig = {
+      version: 1,
+      metadata: { repositoryId: null, repositoryName: null, createdAt: "", updatedAt: "", languages: [] },
+      tools: [{ toolId: "ESLint", useLocalConfigurationFile: true, patterns: [] }],
+    };
+
+    await buildImportPreview("gh", "org", "repo", config, repoTools, allTools, [], "/test/path");
+
+    expect(AnalysisService.listRepositoryToolPatterns).not.toHaveBeenCalled();
   });
 });
 
@@ -349,7 +472,8 @@ describe("executeImport", () => {
       ],
     };
 
-    const preview = buildImportPreview(
+    const preview = await buildImportPreview(
+      "gh", "org", "repo",
       config,
       [
         makeRepoTool("uuid-eslint", "ESLint", true),
@@ -402,6 +526,44 @@ describe("executeImport", () => {
     expect(result.succeeded).toContain("ESLint");
     expect(result.succeeded).toContain("Checkov (disabled)");
     expect(result.failed).toHaveLength(0);
+    expect(result.skipped).toEqual([]);
+  });
+
+  it("should not re-enable locked patterns, but still pass skipped through", async () => {
+    vi.mocked(AnalysisService.updateRepositoryToolPatterns).mockResolvedValue(undefined as any);
+    vi.mocked(AnalysisService.configureTool).mockResolvedValue(undefined as any);
+
+    const config: CodacyConfig = {
+      version: 1,
+      metadata: { repositoryId: null, repositoryName: null, createdAt: "", updatedAt: "", languages: [] },
+      tools: [{ toolId: "ESLint", patterns: [{ patternId: "p1" }] }],
+    };
+
+    const preview = await buildImportPreview("gh", "org", "repo", config, [
+      makeRepoTool("uuid-eslint", "ESLint", true),
+    ], allTools, [], "/test/path");
+    // Simulate what buildImportPreview computes when a pattern fetch finds a locked one.
+    preview.skipped = [
+      { tool: "ESLint", patternId: "p-locked", standards: ["OWASP"], reason: "enforced by coding standard" },
+    ];
+
+    const result = await executeImport(
+      "gh", "test-org", "test-repo",
+      preview, config, allTools,
+      mockSpinner as any,
+    );
+
+    expect(AnalysisService.configureTool).toHaveBeenCalledWith(
+      "gh", "test-org", "test-repo", "uuid-eslint",
+      {
+        enabled: true,
+        useConfigurationFile: false,
+        patterns: [
+          { id: "p1", enabled: true, parameters: undefined },
+        ],
+      },
+    );
+    expect(result.skipped).toEqual(preview.skipped);
   });
 
   it("should skip pattern reset and use config file mode when useLocalConfigurationFile is true", async () => {
@@ -426,7 +588,7 @@ describe("executeImport", () => {
       ],
     };
 
-    const preview = buildImportPreview(config, [], allTools, [], "/test/path");
+    const preview = await buildImportPreview("gh", "org", "repo", config, [], allTools, [], "/test/path");
 
     await executeImport(
       "gh", "test-org", "test-repo",
@@ -462,7 +624,7 @@ describe("executeImport", () => {
     };
 
     const standards = [{ id: 100, name: "Security" }, { id: 200, name: "OWASP" }];
-    const preview = buildImportPreview(config, [], allTools, standards, "/test/path");
+    const preview = await buildImportPreview("gh", "org", "repo", config, [], allTools, standards, "/test/path");
 
     const result = await executeImport(
       "gh", "test-org", "test-repo",
@@ -497,7 +659,7 @@ describe("executeImport", () => {
     };
 
     const standards = [{ id: 100, name: "Security" }];
-    const preview = buildImportPreview(config, [], allTools, standards, "/test/path");
+    const preview = await buildImportPreview("gh", "org", "repo", config, [], allTools, standards, "/test/path");
 
     await executeImport(
       "gh", "test-org", "test-repo",
@@ -530,7 +692,7 @@ describe("executeImport", () => {
       ],
     };
 
-    const preview = buildImportPreview(config, [], allTools, [], "/test/path");
+    const preview = await buildImportPreview("gh", "org", "repo", config, [], allTools, [], "/test/path");
 
     const result = await executeImport(
       "gh", "test-org", "test-repo",
@@ -562,7 +724,7 @@ describe("executeImport", () => {
       tools: [{ toolId: "ESLint", patterns: [{ patternId: "p1" }] }],
     };
 
-    const preview = buildImportPreview(config, [], allTools, [], "/test/path");
+    const preview = await buildImportPreview("gh", "org", "repo", config, [], allTools, [], "/test/path");
     const result = await executeImport("gh", "org", "repo", preview, config, allTools, mockSpinner as any);
 
     expect(result.failed[0].status).toBe(409);
@@ -587,7 +749,7 @@ describe("executeImport", () => {
       tools: [{ toolId: "ESLint", patterns: [{ patternId: "p1" }] }],
     };
 
-    const preview = buildImportPreview(config, [], allTools, [], "/test/path");
+    const preview = await buildImportPreview("gh", "org", "repo", config, [], allTools, [], "/test/path");
     const result = await executeImport("gh", "org", "repo", preview, config, allTools, mockSpinner as any);
 
     expect(result.failed[0].status).toBe(400);
@@ -611,7 +773,7 @@ describe("executeImport", () => {
       tools: [{ toolId: "ESLint", patterns: [{ patternId: "p1" }] }],
     };
 
-    const preview = buildImportPreview(config, [], allTools, [], "/test/path");
+    const preview = await buildImportPreview("gh", "org", "repo", config, [], allTools, [], "/test/path");
     const result = await executeImport("gh", "org", "repo", preview, config, allTools, mockSpinner as any);
 
     expect(result.failed[0].status).toBe(500);
