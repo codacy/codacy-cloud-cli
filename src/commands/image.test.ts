@@ -821,6 +821,112 @@ describe("image command", () => {
       exit.mockRestore();
     });
 
+    // `Number("")` and `Number("   ")` are both 0, and 0 is a valid count, so
+    // the integer guard alone waved these through and doomed every tag. This
+    // is `--keep-latest "$KEEP_COUNT"` with the variable unset.
+    it.each([
+      ["an empty string", ""],
+      ["whitespace only", "   "],
+    ])("rejects %s rather than reading it as 0", async (_label, value) => {
+      const exit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit called");
+      });
+      vi.mocked(SbomService.listImageTags).mockResolvedValue({
+        data: tagsUploadedOn([1, 2, 3]),
+        pagination: {},
+      } as any);
+
+      const program = createProgram();
+      await expect(
+        program.parseAsync([
+          "node", "test", "image", "gh", "test-org", "my-service",
+          "--delete", "--keep-latest", value,
+        ]),
+      ).rejects.toThrow("process.exit called");
+
+      expect(SbomService.deleteImageTag).not.toHaveBeenCalled();
+      expect(errorOutput()).toContain("non-negative whole number");
+      exit.mockRestore();
+    });
+
+    // The JSON path used to return before ever reaching the prompt, so
+    // `--output json` deleted unconditionally — on the one path a release
+    // pipeline actually runs. Both pre-existing JSON tests pass --dry-run or
+    // --skip-confirmation, which is why nothing caught it.
+    it("confirms before deleting under --output json, like the table path", async () => {
+      vi.mocked(SbomService.listImageTags).mockResolvedValue({
+        data: tagsUploadedOn([1, 2, 3]),
+        pagination: {},
+      } as any);
+      const confirm = vi
+        .spyOn(prompt, "confirmAction")
+        .mockResolvedValue(false);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "--output", "json",
+        "image", "gh", "test-org", "my-service",
+        "--delete", "--keep-latest", "1",
+      ]);
+
+      expect(confirm).toHaveBeenCalledTimes(1);
+      expect(SbomService.deleteImageTag).not.toHaveBeenCalled();
+      // One document and no prose: `deleted` stays an array in this mode.
+      const parsed = JSON.parse(getAllOutput());
+      expect(parsed).toMatchObject({
+        imageName: "my-service",
+        keepLatest: 1,
+        dryRun: false,
+        kept: ["1.0.3"],
+        deleted: [],
+        aborted: true,
+      });
+      expect(process.exitCode).not.toBe(1);
+    });
+
+    it("proceeds under --output json once the prompt is answered", async () => {
+      vi.mocked(SbomService.listImageTags).mockResolvedValue({
+        data: tagsUploadedOn([1, 2, 3]),
+        pagination: {},
+      } as any);
+      vi.spyOn(prompt, "confirmAction").mockResolvedValue(true);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "--output", "json",
+        "image", "gh", "test-org", "my-service",
+        "--delete", "--keep-latest", "1",
+      ]);
+
+      expect(
+        vi.mocked(SbomService.deleteImageTag).mock.calls.map((c) => c[3]),
+      ).toEqual(["1.0.2", "1.0.1"]);
+      expect(JSON.parse(getAllOutput())).toMatchObject({
+        deleted: ["1.0.2", "1.0.1"],
+      });
+      expect(JSON.parse(getAllOutput()).aborted).toBeUndefined();
+    });
+
+    // A dry run has nothing to confirm, and neither does a run with nothing
+    // doomed — prompting there would be a question with no consequence.
+    it("does not prompt under --output json when nothing will be deleted", async () => {
+      vi.mocked(SbomService.listImageTags).mockResolvedValue({
+        data: tagsUploadedOn([1, 2, 3]),
+        pagination: {},
+      } as any);
+      const confirm = vi.spyOn(prompt, "confirmAction").mockResolvedValue(true);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "--output", "json",
+        "image", "gh", "test-org", "my-service",
+        "--delete", "--keep-latest", "10",
+      ]);
+
+      expect(confirm).not.toHaveBeenCalled();
+      expect(SbomService.deleteImageTag).not.toHaveBeenCalled();
+    });
+
     it("outputs JSON naming what was kept and deleted", async () => {
       vi.mocked(SbomService.listImageTags).mockResolvedValue({
         data: tagsUploadedOn([1, 2, 3]),

@@ -192,6 +192,21 @@ upload-then-delete *fails at the cap* and can strand an org there
   attempted and the failures are listed. The exit code is still 1 — a partial
   cleanup is a real failure for the step that follows.
 
+**Confirmation applies in every output mode.** `--output json` gates on the same
+`confirmKeepLatest` the table path uses and reports a decline as
+`{deleted: [], aborted: true}` — an array rather than the single-tag delete's
+`false`, because `deleted` names tags in this mode and changing its type between
+outcomes would make every consumer branch before it could read the field. JSON
+is the mode a release pipeline runs in, so an ungated delete here would be the
+one unconfirmed delete in the file on the path where a mistake is least likely
+to be noticed. Nothing is asked when nothing would be deleted (`--dry-run`, or
+an image already at or under `n`).
+
+**An empty `--keep-latest` is refused, not read as `0`.** `Number("")` and
+`Number("   ")` are both `0` and `0` is a valid count, so the integer guard
+alone accepted `--keep-latest "$KEEP_COUNT"` with the variable unset and doomed
+every tag. Same shape as `auth.ts`'s empty `--repository-token` guard.
+
 **`--output json` emits one document, after the fact.** Nothing is printed until
 every delete has been attempted, so `deleted` names the tags that actually went
 rather than the ones that were going to; `failures` carries the rest. Printing
