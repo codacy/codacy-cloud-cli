@@ -1,5 +1,15 @@
 # @codacy/codacy-cloud-cli
 
+## 1.12.1
+
+### Patch Changes
+
+- [#55](https://github.com/codacy/codacy-cloud-cli/pull/55) [`3e55d0f`](https://github.com/codacy/codacy-cloud-cli/commit/3e55d0fb31eae75a8c3240b000c295f247b5d2c0) Thanks [@claudiacodacy](https://github.com/claudiacodacy)! - Escape path parameters per segment, so a namespaced image name reaches the right endpoint. `codacy image gh my-org my-org/my-service` and every other `image` subcommand failed with `Error: The requested resource could not be found. (HTTP 404)` against any image whose name carries a slash — which is the usual shape, and was every image in our own organization.
+
+  The generated client falls back to `encodeURI` when `OpenAPI.ENCODE_PATH` is unset, and `encodeURI` leaves `/` alone because it is meant for whole URLs rather than the pieces they are built from. `codacy/codacy-website` therefore expanded into two path segments and hit a route that does not exist. The entry point now sets `encodePathSegment` (`encodeURIComponent`), which escapes separators as a single segment requires.
+
+  This affects every command, not only `image`: the same encoder handles branch names and file paths, which can carry slashes for the same reason. No currently shipped command sent one as a path parameter, so nothing else changes shape.
+
 ## 1.12.0
 
 ### Minor Changes
