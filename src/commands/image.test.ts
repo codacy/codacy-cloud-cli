@@ -5,6 +5,7 @@ import path from "node:path";
 import { Command } from "commander";
 import { registerImageCommand } from "./image";
 import { SbomService } from "../api/client/services/SbomService";
+import { ApiError } from "../api/client/core/ApiError";
 import * as prompt from "../utils/prompt";
 
 vi.mock("../api/client/services/SbomService");
@@ -228,7 +229,7 @@ describe("image command", () => {
   });
 
   describe("--delete --tag <tag>", () => {
-    it("confirms, warns about the metrics wipe, then deletes just that tag", async () => {
+    it("confirms, then deletes just that tag", async () => {
       const confirm = vi.spyOn(prompt, "confirmAction").mockResolvedValue(true);
       vi.mocked(SbomService.deleteImageTag).mockResolvedValue(undefined as any);
 
@@ -238,11 +239,6 @@ describe("image command", () => {
         "--tag", "1.2.3", "--delete",
       ]);
 
-      // stderr, not stdout: a warning is not part of the command's output, and
-      // under --output json stdout carries the JSON document and nothing else.
-      expect(errorOutput()).toContain(
-        "zeroes Container Scanning metrics for the whole organization",
-      );
       expect(confirm).toHaveBeenCalledWith(
         "Delete the SBOM for my-service:1.2.3? This cannot be undone.",
       );
@@ -562,6 +558,467 @@ describe("image command", () => {
         environment: "production",
         uploaded: true,
       });
+    });
+  });
+
+  describe("--delete --keep-latest", () => {
+    function tagsUploadedOn(days: number[]) {
+      return days.map((d) =>
+        mockTag({
+          tag: `1.0.${d}`,
+          uploadedAt: new Date(Date.UTC(2025, 0, d)).toISOString(),
+        }),
+      );
+    }
+
+    beforeEach(() => {
+      vi.mocked(SbomService.listOrganizationImages).mockResolvedValue({
+        data: [],
+        pagination: { total: 7 },
+      } as any);
+      vi.mocked(SbomService.deleteImageTag).mockResolvedValue(undefined as any);
+    });
+
+    it("keeps the n most recently uploaded tags and deletes the rest", async () => {
+      // Deliberately out of order: the command must sort, not trust the API.
+      vi.mocked(SbomService.listImageTags).mockResolvedValue({
+        data: tagsUploadedOn([3, 1, 5, 2, 4]),
+        pagination: {},
+      } as any);
+      vi.spyOn(prompt, "confirmAction").mockResolvedValue(true);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "image", "gh", "test-org", "my-service",
+        "--delete", "--keep-latest", "2",
+      ]);
+
+      const deletedTags = vi
+        .mocked(SbomService.deleteImageTag)
+        .mock.calls.map((c) => c[3]);
+      expect(deletedTags).toEqual(["1.0.3", "1.0.2", "1.0.1"]);
+    });
+
+    it("orders by uploadedAt, not generatedAt", async () => {
+      vi.mocked(SbomService.listImageTags).mockResolvedValue({
+        data: [
+          // Built last, received first: what accumulates is the upload.
+          mockTag({
+            tag: "built-late",
+            uploadedAt: "2025-01-01T00:00:00Z",
+            generatedAt: "2025-12-31T00:00:00Z",
+          }),
+          mockTag({
+            tag: "uploaded-late",
+            uploadedAt: "2025-06-01T00:00:00Z",
+            generatedAt: "2025-01-01T00:00:00Z",
+          }),
+        ],
+        pagination: {},
+      } as any);
+      vi.spyOn(prompt, "confirmAction").mockResolvedValue(true);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "image", "gh", "test-org", "my-service",
+        "--delete", "--keep-latest", "1",
+      ]);
+
+      expect(vi.mocked(SbomService.deleteImageTag).mock.calls[0][3]).toBe(
+        "built-late",
+      );
+    });
+
+    it("pages every tag before deciding what to delete", async () => {
+      vi.mocked(SbomService.listImageTags)
+        .mockResolvedValueOnce({
+          data: tagsUploadedOn([5, 4]),
+          pagination: { cursor: "next" },
+        } as any)
+        .mockResolvedValueOnce({
+          data: tagsUploadedOn([3, 2, 1]),
+          pagination: {},
+        } as any);
+      vi.spyOn(prompt, "confirmAction").mockResolvedValue(true);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "image", "gh", "test-org", "my-service",
+        "--delete", "--keep-latest", "4",
+      ]);
+
+      // A tag on page 2 is as deletable as one on page 1.
+      expect(SbomService.deleteImageTag).toHaveBeenCalledOnce();
+      expect(vi.mocked(SbomService.deleteImageTag).mock.calls[0][3]).toBe("1.0.1");
+    });
+
+    it("does nothing, cleanly, when there are fewer tags than n", async () => {
+      vi.mocked(SbomService.listImageTags).mockResolvedValue({
+        data: tagsUploadedOn([1, 2]),
+        pagination: {},
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "image", "gh", "test-org", "my-service",
+        "--delete", "--keep-latest", "10",
+      ]);
+
+      expect(SbomService.deleteImageTag).not.toHaveBeenCalled();
+      expect(getAllOutput()).toContain("Nothing to delete");
+    });
+
+    it("--dry-run deletes nothing and never prompts", async () => {
+      vi.mocked(SbomService.listImageTags).mockResolvedValue({
+        data: tagsUploadedOn([1, 2, 3]),
+        pagination: {},
+      } as any);
+      const confirm = vi.spyOn(prompt, "confirmAction");
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "image", "gh", "test-org", "my-service",
+        "--delete", "--keep-latest", "1", "--dry-run",
+      ]);
+
+      expect(SbomService.deleteImageTag).not.toHaveBeenCalled();
+      expect(confirm).not.toHaveBeenCalled();
+      const output = getAllOutput();
+      expect(output).toContain("Would delete 2 of 3 tags");
+      expect(output).toContain("Dry run");
+    });
+
+    it("warns when n x the org's image count exceeds the default cap", async () => {
+      vi.mocked(SbomService.listOrganizationImages).mockResolvedValue({
+        data: [],
+        pagination: { total: 212 },
+      } as any);
+      vi.mocked(SbomService.listImageTags).mockResolvedValue({
+        data: tagsUploadedOn([1, 2, 3]),
+        pagination: {},
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "image", "gh", "test-org", "my-service",
+        "--delete", "--keep-latest", "10", "--dry-run",
+      ]);
+
+      const output = getAllOutput();
+      // Never a constant n without the image count beside it.
+      expect(output).toContain("this organization has 212 images");
+      expect(output).toContain("holds 2,120 image tags");
+      // Exact figures, not formatCount's "2.1k"/"1k".
+      expect(output).toContain("cap of 1,000");
+      expect(output).toContain("allows 4 per image");
+    });
+
+    it("stays quiet about the budget when n x images fits the cap", async () => {
+      vi.mocked(SbomService.listImageTags).mockResolvedValue({
+        data: tagsUploadedOn([1, 2, 3]),
+        pagination: {},
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "image", "gh", "test-org", "my-service",
+        "--delete", "--keep-latest", "10", "--dry-run",
+      ]);
+
+      expect(getAllOutput()).not.toContain("above the default organization cap");
+    });
+
+    it("carries on past a failed delete and exits non-zero", async () => {
+      vi.mocked(SbomService.listImageTags).mockResolvedValue({
+        data: tagsUploadedOn([1, 2, 3]),
+        pagination: {},
+      } as any);
+      vi.spyOn(prompt, "confirmAction").mockResolvedValue(true);
+      vi.mocked(SbomService.deleteImageTag)
+        .mockRejectedValueOnce(new Error("Conflict"))
+        .mockResolvedValueOnce(undefined as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "image", "gh", "test-org", "my-service",
+        "--delete", "--keep-latest", "1",
+      ]);
+
+      // Giving up at the first failure leaves the org no better off.
+      expect(SbomService.deleteImageTag).toHaveBeenCalledTimes(2);
+      expect(getAllOutput()).toContain("Conflict");
+      expect(process.exitCode).toBe(1);
+      process.exitCode = 0;
+    });
+
+    it("aborts without deleting when the confirmation is declined", async () => {
+      vi.mocked(SbomService.listImageTags).mockResolvedValue({
+        data: tagsUploadedOn([1, 2, 3]),
+        pagination: {},
+      } as any);
+      vi.spyOn(prompt, "confirmAction").mockResolvedValue(false);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "image", "gh", "test-org", "my-service",
+        "--delete", "--keep-latest", "1",
+      ]);
+
+      expect(SbomService.deleteImageTag).not.toHaveBeenCalled();
+      expect(getAllOutput()).toContain("nothing was deleted");
+    });
+
+    it("refuses --keep-latest without --delete", async () => {
+      const exit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit called");
+      });
+
+      const program = createProgram();
+      await expect(
+        program.parseAsync([
+          "node", "test", "image", "gh", "test-org", "my-service",
+          "--keep-latest", "10",
+        ]),
+      ).rejects.toThrow("process.exit called");
+
+      expect(SbomService.listImageTags).not.toHaveBeenCalled();
+      expect(errorOutput()).toContain("--keep-latest only applies to --delete");
+      exit.mockRestore();
+    });
+
+    it("refuses --tag combined with --keep-latest", async () => {
+      const exit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit called");
+      });
+
+      const program = createProgram();
+      await expect(
+        program.parseAsync([
+          "node", "test", "image", "gh", "test-org", "my-service",
+          "--delete", "--tag", "1.0.1", "--keep-latest", "10",
+        ]),
+      ).rejects.toThrow("process.exit called");
+
+      expect(SbomService.deleteImageTag).not.toHaveBeenCalled();
+      expect(errorOutput()).toContain("--tag and --keep-latest cannot be combined");
+      exit.mockRestore();
+    });
+
+    it("rejects a non-integer --keep-latest instead of coercing it", async () => {
+      const exit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit called");
+      });
+
+      const program = createProgram();
+      await expect(
+        program.parseAsync([
+          "node", "test", "image", "gh", "test-org", "my-service",
+          "--delete", "--keep-latest", "ten",
+        ]),
+      ).rejects.toThrow("process.exit called");
+
+      expect(SbomService.deleteImageTag).not.toHaveBeenCalled();
+      expect(errorOutput()).toContain("non-negative whole number");
+      exit.mockRestore();
+    });
+
+    // `Number("")` and `Number("   ")` are both 0, and 0 is a valid count, so
+    // the integer guard alone waved these through and doomed every tag. This
+    // is `--keep-latest "$KEEP_COUNT"` with the variable unset.
+    it.each([
+      ["an empty string", ""],
+      ["whitespace only", "   "],
+    ])("rejects %s rather than reading it as 0", async (_label, value) => {
+      const exit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit called");
+      });
+      vi.mocked(SbomService.listImageTags).mockResolvedValue({
+        data: tagsUploadedOn([1, 2, 3]),
+        pagination: {},
+      } as any);
+
+      const program = createProgram();
+      await expect(
+        program.parseAsync([
+          "node", "test", "image", "gh", "test-org", "my-service",
+          "--delete", "--keep-latest", value,
+        ]),
+      ).rejects.toThrow("process.exit called");
+
+      expect(SbomService.deleteImageTag).not.toHaveBeenCalled();
+      expect(errorOutput()).toContain("non-negative whole number");
+      exit.mockRestore();
+    });
+
+    // The JSON path used to return before ever reaching the prompt, so
+    // `--output json` deleted unconditionally — on the one path a release
+    // pipeline actually runs. Both pre-existing JSON tests pass --dry-run or
+    // --skip-confirmation, which is why nothing caught it.
+    it("confirms before deleting under --output json, like the table path", async () => {
+      vi.mocked(SbomService.listImageTags).mockResolvedValue({
+        data: tagsUploadedOn([1, 2, 3]),
+        pagination: {},
+      } as any);
+      const confirm = vi
+        .spyOn(prompt, "confirmAction")
+        .mockResolvedValue(false);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "--output", "json",
+        "image", "gh", "test-org", "my-service",
+        "--delete", "--keep-latest", "1",
+      ]);
+
+      expect(confirm).toHaveBeenCalledTimes(1);
+      expect(SbomService.deleteImageTag).not.toHaveBeenCalled();
+      // One document and no prose: `deleted` stays an array in this mode.
+      const parsed = JSON.parse(getAllOutput());
+      expect(parsed).toMatchObject({
+        imageName: "my-service",
+        keepLatest: 1,
+        dryRun: false,
+        kept: ["1.0.3"],
+        deleted: [],
+        aborted: true,
+      });
+      expect(process.exitCode).not.toBe(1);
+    });
+
+    it("proceeds under --output json once the prompt is answered", async () => {
+      vi.mocked(SbomService.listImageTags).mockResolvedValue({
+        data: tagsUploadedOn([1, 2, 3]),
+        pagination: {},
+      } as any);
+      vi.spyOn(prompt, "confirmAction").mockResolvedValue(true);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "--output", "json",
+        "image", "gh", "test-org", "my-service",
+        "--delete", "--keep-latest", "1",
+      ]);
+
+      expect(
+        vi.mocked(SbomService.deleteImageTag).mock.calls.map((c) => c[3]),
+      ).toEqual(["1.0.2", "1.0.1"]);
+      expect(JSON.parse(getAllOutput())).toMatchObject({
+        deleted: ["1.0.2", "1.0.1"],
+      });
+      expect(JSON.parse(getAllOutput()).aborted).toBeUndefined();
+    });
+
+    // A dry run has nothing to confirm, and neither does a run with nothing
+    // doomed — prompting there would be a question with no consequence.
+    // The existing failure test rejects with a plain Error, which masks this:
+    // for an ApiError, `err.message` is the generated client's static status
+    // table, so every failure in the report read "Bad Request" — on the one
+    // path that swallows errors instead of routing them through handleError.
+    it("reports the API's message for a failed tag, not the status name", async () => {
+      vi.mocked(SbomService.listImageTags).mockResolvedValue({
+        data: tagsUploadedOn([1, 2, 3]),
+        pagination: {},
+      } as any);
+      vi.mocked(SbomService.deleteImageTag).mockRejectedValueOnce(
+        new ApiError(
+          { method: "DELETE", url: "/x" } as any,
+          {
+            url: "/x",
+            ok: false,
+            status: 400,
+            statusText: "Bad Request",
+            body: { message: "Tag 1.0.2 is referenced by an active scan" },
+          } as any,
+          "Bad Request",
+        ),
+      );
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "--output", "json",
+        "image", "gh", "test-org", "my-service",
+        "--delete", "--keep-latest", "1", "--skip-confirmation",
+      ]);
+
+      expect(JSON.parse(getAllOutput()).failures).toEqual([
+        { tag: "1.0.2", reason: "Tag 1.0.2 is referenced by an active scan" },
+      ]);
+      process.exitCode = 0;
+    });
+
+    it("does not prompt under --output json when nothing will be deleted", async () => {
+      vi.mocked(SbomService.listImageTags).mockResolvedValue({
+        data: tagsUploadedOn([1, 2, 3]),
+        pagination: {},
+      } as any);
+      const confirm = vi.spyOn(prompt, "confirmAction").mockResolvedValue(true);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "--output", "json",
+        "image", "gh", "test-org", "my-service",
+        "--delete", "--keep-latest", "10",
+      ]);
+
+      expect(confirm).not.toHaveBeenCalled();
+      expect(SbomService.deleteImageTag).not.toHaveBeenCalled();
+    });
+
+    it("outputs JSON naming what was kept and deleted", async () => {
+      vi.mocked(SbomService.listImageTags).mockResolvedValue({
+        data: tagsUploadedOn([1, 2, 3]),
+        pagination: {},
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "--output", "json",
+        "image", "gh", "test-org", "my-service",
+        "--delete", "--keep-latest", "1", "--dry-run",
+      ]);
+
+      expect(JSON.parse(getAllOutput())).toMatchObject({
+        imageName: "my-service",
+        keepLatest: 1,
+        dryRun: true,
+        kept: ["1.0.3"],
+        deleted: [],
+        wouldDelete: ["1.0.2", "1.0.1"],
+        organizationImageCount: 7,
+      });
+    });
+
+    it("outputs one JSON document naming the deletions that actually happened", async () => {
+      vi.mocked(SbomService.listImageTags).mockResolvedValue({
+        data: tagsUploadedOn([1, 2, 3]),
+        pagination: {},
+      } as any);
+      vi.mocked(SbomService.deleteImageTag)
+        .mockRejectedValueOnce(new Error("Conflict"))
+        .mockResolvedValueOnce(undefined as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "--output", "json",
+        "image", "gh", "test-org", "my-service",
+        "--delete", "--keep-latest", "1", "--skip-confirmation",
+      ]);
+
+      // One document, not two: the failure report used to be printed as a
+      // second JSON value on the same stdout.
+      const parsed = JSON.parse(getAllOutput());
+      expect(parsed).toMatchObject({
+        dryRun: false,
+        kept: ["1.0.3"],
+        // 1.0.2 was attempted and failed, so it is not among the deletions.
+        deleted: ["1.0.1"],
+        failures: [{ tag: "1.0.2", reason: "Conflict" }],
+      });
+      expect(parsed.wouldDelete).toBeUndefined();
+      // A release pipeline reading JSON must not see a clean exit after a
+      // partial cleanup.
+      expect(process.exitCode).toBe(1);
+      process.exitCode = 0;
     });
   });
 });

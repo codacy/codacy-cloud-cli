@@ -116,6 +116,53 @@ const ACCOUNT_ONLY_COMMANDS = [
     argv: ["image", "gh", "test-org", "my-service"],
     neverCalled: () => SbomService.listImageTags,
   },
+  // `image` has five modes behind one action callback. The guard is that
+  // callback's first statement, ahead of the dispatch, so one row would cover
+  // them all — but "covered by construction" is what stops being true the day
+  // someone moves a mode's validation above it, and the two destructive modes
+  // are the ones where that would matter.
+  {
+    name: "image --tag",
+    register: registerImageCommand,
+    argv: ["image", "gh", "test-org", "my-service", "--tag", "1.2.3"],
+    neverCalled: () => SbomService.listImageTags,
+  },
+  {
+    name: "image --tag --delete",
+    register: registerImageCommand,
+    argv: [
+      "image", "gh", "test-org", "my-service",
+      "--tag", "1.2.3", "--delete", "--skip-confirmation",
+    ],
+    neverCalled: () => SbomService.deleteImageTag,
+  },
+  {
+    name: "image --delete",
+    register: registerImageCommand,
+    argv: [
+      "image", "gh", "test-org", "my-service",
+      "--delete", "--skip-confirmation",
+    ],
+    neverCalled: () => SbomService.deleteImageSboms,
+  },
+  {
+    name: "image --delete --keep-latest",
+    register: registerImageCommand,
+    argv: [
+      "image", "gh", "test-org", "my-service",
+      "--delete", "--keep-latest", "1", "--skip-confirmation",
+    ],
+    neverCalled: () => SbomService.deleteImageTag,
+  },
+  {
+    name: "image --upload",
+    register: registerImageCommand,
+    argv: [
+      "image", "gh", "test-org", "my-service",
+      "--tag", "1.2.3", "--upload", "./sbom.json",
+    ],
+    neverCalled: () => SbomService.uploadImageSbom,
+  },
 ] as const;
 
 function createProgram(register: (program: Command) => void): Command {

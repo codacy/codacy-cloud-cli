@@ -1,11 +1,11 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { Command } from "commander";
-import ora from "ora";
+import ora, { type Ora } from "ora";
 import ansis from "ansis";
 import pluralize from "pluralize";
 import { repositoryTokenOption, resolveAccountAuth } from "../utils/auth";
-import { handleError } from "../utils/error";
+import { errorReason, handleError } from "../utils/error";
 import {
   createTable,
   formatFriendlyDate,
@@ -24,18 +24,14 @@ const MAX_LIMIT = 1000;
 const PAGE_SIZE = 100;
 
 /**
- * Printed before every delete confirmation.
- *
- * Deleting an image tag currently zero-fills Container Scanning metrics for the
- * *whole organization*, across every repository, until the next nightly scan
- * heals them. That is a surprising, org-wide side effect of what reads like a
- * per-image cleanup, so the user sees it before they answer — not afterwards in
- * a dashboard. (Tracked in "Fix org-wide metrics wipe on image tag deletion";
- * this notice comes out once that lands.)
+ * The organization-wide image-tag cap this CLI assumes when warning about
+ * `--keep-latest`. It is **configuration, not a constant**
+ * (`sbom.image.max-image-tags-per-org`, `reference.conf:115`; the test default
+ * is 100) and no API endpoint exposes the value in force, so the warning says
+ * "default" rather than stating it as fact. If an endpoint ever returns it,
+ * read it instead of this.
  */
-const METRICS_WIPE_NOTICE =
-  "Note: deleting SBOM data temporarily zeroes Container Scanning metrics for the whole " +
-  "organization. They are restored by the next nightly scan.";
+const DEFAULT_ORG_TAG_CAP = 1000;
 
 const ABORT_HINT =
   "Pass --skip-confirmation (-y) to bypass this prompt in CI or scripts.";
@@ -74,6 +70,14 @@ export function registerImageCommand(program: Command) {
     .option("-e, --environment <name>", "environment the image is deployed to (with --upload)")
     .option("-r, --repository <name>", "repository to associate the upload with")
     .option("-D, --delete", "delete the image's SBOMs, or just --tag's")
+    .option(
+      "-k, --keep-latest <n>",
+      "with --delete: keep the n most recently uploaded tags, delete the rest",
+    )
+    // Deliberately long-only, a documented exception to the "every option gets
+    // a short flag" rule in AGENTS.md: every free letter sits one shift-key
+    // from `-D, --delete`, and the typo that produces is the destructive one.
+    .option("--dry-run", "with --delete: show what would be deleted, delete nothing")
     .option("-y, --skip-confirmation", "skip the confirmation prompt")
     .addOption(repositoryTokenOption())
     .addHelpText(
@@ -86,6 +90,8 @@ Examples:
   $ codacy-cloud-cli image gh my-org my-service --tag 1.2.3 --upload ./sbom.json
   $ codacy-cloud-cli image gh my-org my-service --tag 1.2.3 --upload ./sbom.json --environment production --repository my-repo
   $ codacy-cloud-cli image gh my-org my-service --tag 1.2.3 --delete
+  $ codacy-cloud-cli image gh my-org my-service --delete --keep-latest 10 --dry-run
+  $ codacy-cloud-cli image gh my-org my-service --delete --keep-latest 10 --skip-confirmation
   $ codacy-cloud-cli image gh my-org my-service --delete --skip-confirmation
   $ codacy-cloud-cli image gh my-org my-service --output json`,
     )
@@ -101,6 +107,8 @@ Examples:
         environment?: string;
         repository?: string;
         delete?: boolean;
+        keepLatest?: string;
+        dryRun?: boolean;
         skipConfirmation?: boolean;
       },
     ) {
@@ -112,15 +120,7 @@ Examples:
           "it reads, uploads and deletes organization-level container image data",
         );
         const format = getOutputFormat(this);
-
-        // Two different verbs, unlike `--delete`'s two scopes: asking for both
-        // in one invocation says nothing coherent about what should happen to
-        // the SBOM, so it is refused rather than ordered.
-        if (options.upload && options.delete) {
-          throw new Error(
-            "--upload and --delete cannot be combined: one adds an SBOM, the other removes it.",
-          );
-        }
+        rejectIncoherentOptions(options);
 
         if (options.upload) {
           await executeUpload(provider, organization, image, options.upload, {
@@ -136,12 +136,22 @@ Examples:
         // `issues --ignore` makes with its filters: the flag that narrows what
         // is acted on is the same flag that narrows what is shown.
         if (options.delete) {
+          if (options.keepLatest !== undefined) {
+            await executeKeepLatest(provider, organization, image, {
+              keepLatest: parseKeepLatest(options.keepLatest),
+              dryRun: !!options.dryRun,
+              skipConfirmation: !!options.skipConfirmation,
+              json: format === "json",
+            });
+            return;
+          }
           await executeDelete(
             provider,
             organization,
             image,
             options.tag,
             !!options.skipConfirmation,
+            !!options.dryRun,
             format === "json",
           );
           return;
@@ -157,6 +167,46 @@ Examples:
         handleError(err);
       }
     });
+}
+
+/**
+ * The flag combinations that say nothing coherent, refused before any request.
+ *
+ * Each is a pair the command could silently pick a winner from, and silently
+ * picking is the failure mode worth avoiding here — the command deletes.
+ */
+function rejectIncoherentOptions(options: {
+  tag?: string;
+  upload?: string;
+  delete?: boolean;
+  keepLatest?: string;
+  dryRun?: boolean;
+}): void {
+  // Two different verbs, unlike `--delete`'s two scopes: asking for both
+  // in one invocation says nothing coherent about what should happen to
+  // the SBOM, so it is refused rather than ordered.
+  if (options.upload && options.delete) {
+    throw new Error(
+      "--upload and --delete cannot be combined: one adds an SBOM, the other removes it.",
+    );
+  }
+
+  // `--keep-latest` and `--dry-run` narrow and preview a delete; neither
+  // says anything on its own, so they are refused rather than ignored.
+  if (!options.delete && (options.keepLatest !== undefined || options.dryRun)) {
+    throw new Error(
+      `${options.keepLatest !== undefined ? "--keep-latest" : "--dry-run"} only applies to --delete.`,
+    );
+  }
+
+  // Two ways to say which tags to act on. `--tag` names one, and
+  // `--keep-latest` names all but the newest n — asking for both says
+  // nothing coherent about the scope.
+  if (options.tag && options.keepLatest !== undefined) {
+    throw new Error(
+      "--tag and --keep-latest cannot be combined: --tag acts on one tag, --keep-latest on every tag but the newest n.",
+    );
+  }
 }
 
 /**
@@ -446,6 +496,395 @@ async function executeUpload(
 }
 
 /**
+ * `--keep-latest <n>`. Rejects anything that isn't a non-negative integer:
+ * `--keep-latest 10.5` or `--keep-latest ten` silently coerced to something
+ * would decide how many tags get deleted.
+ */
+function parseKeepLatest(value: string): number {
+  const n = Number(value);
+  // `Number("")` and `Number("   ")` are both 0, and 0 is a valid count — so
+  // without this an unset `--keep-latest "$KEEP_COUNT"` in a pipeline reads as
+  // "keep none" and dooms every tag. Same shape as `auth.ts`'s empty
+  // `--repository-token` guard, for the same reason.
+  if (value.trim() === "" || !Number.isInteger(n) || n < 0) {
+    throw new Error(
+      `--keep-latest expects a non-negative whole number, got '${value}'.`,
+    );
+  }
+  return n;
+}
+
+/**
+ * How many images the organization holds, or `undefined` when the lookup fails.
+ *
+ * Only used to qualify `--keep-latest`: the cap is organization-wide and counts
+ * image x tag rows, while this flag is per image, so `n` is only safe as
+ * `cap / images`. `--keep-latest 10` is under the cap for a 7-image org and
+ * more than double it for a 212-image one. One request (`limit: 1`, for
+ * `pagination.total`), never a fan-out.
+ */
+async function fetchImageCount(
+  provider: string,
+  organization: string,
+): Promise<number | undefined> {
+  try {
+    const response = await SbomService.listOrganizationImages(
+      provider,
+      organization,
+      undefined, // cursor
+      1,
+    );
+    return response.pagination?.total;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The warning that stops `--keep-latest <n>` being read as safe on its own.
+ *
+ * Project rule (`per-image-tag-budget.md`): never put a constant `n` in front
+ * of a user without the image count beside it. This is the smallest thing that
+ * honours it — it warns, it does not refuse, and it does not pick between the
+ * four options that file leaves open.
+ */
+function orgBudgetWarning(
+  keepLatest: number,
+  imageCount: number | undefined,
+): string | undefined {
+  if (imageCount === undefined || imageCount === 0) return undefined;
+  const projected = keepLatest * imageCount;
+  if (projected <= DEFAULT_ORG_TAG_CAP) return undefined;
+
+  const safePerImage = Math.floor(DEFAULT_ORG_TAG_CAP / imageCount);
+  // Exact numbers, not `formatCount`: its abbreviation turns the cap everyone
+  // quotes into "1k" and the projection into "2.1k", which is the wrong
+  // register for the two figures the reader is being asked to compare.
+  const exact = (n: number) => n.toLocaleString("en-US");
+  return (
+    `Warning: this organization has ${exact(imageCount)} ${pluralize("image", imageCount)}. ` +
+    `Keeping ${exact(keepLatest)} tags on each holds ${exact(projected)} image tags, ` +
+    `above the default organization cap of ${exact(DEFAULT_ORG_TAG_CAP)} — past which new tags are ` +
+    `rejected and those images stop being scanned. ` +
+    `At this image count the cap allows ${exact(safePerImage)} per image. ` +
+    `(The cap is configurable; this CLI cannot read the value in force.)`
+  );
+}
+
+/**
+ * `--delete --keep-latest <n>`: keep the n most recently uploaded tags of an
+ * image and delete every older one. The cleanup step of a release pipeline,
+ * which is why it runs to completion rather than stopping at the first failure,
+ * and why `--dry-run` exists.
+ *
+ * `n` is literal — it counts the tags that exist when the command runs, not
+ * after the upload that follows it. Making it secretly mean n-1 would be a
+ * number that doesn't match what the user typed.
+ */
+type KeepLatestPlan = {
+  tags: ImageTagSummary[];
+  kept: ImageTagSummary[];
+  doomed: ImageTagSummary[];
+  imageCount: number | undefined;
+  budgetWarning: string | undefined;
+};
+
+/**
+ * What `--keep-latest <n>` would do, decided before anything is printed or
+ * deleted — so the JSON path, the table path and the dry run all work from one
+ * answer rather than each recomputing it.
+ */
+async function planKeepLatest(
+  provider: string,
+  organization: string,
+  image: string,
+  keepLatest: number,
+): Promise<KeepLatestPlan> {
+  const spinner = ora(`Fetching tags for ${sanitizeText(image)}...`).start();
+  // Every page: a tag on page 3 is just as deletable as one on page 1, and a
+  // partial view would silently keep tags the user asked to remove.
+  const { tags } = await fetchTags(provider, organization, image);
+  const imageCount = await fetchImageCount(provider, organization);
+  spinner.stop();
+
+  // Newest first. `uploadedAt` is when Codacy received the SBOM, which is what
+  // "latest" means for a pipeline that uploads on every release — `generatedAt`
+  // is when the SBOM was built, which can differ and is not what accumulates.
+  const ordered = [...tags].sort(
+    (a, b) => Date.parse(b.uploadedAt) - Date.parse(a.uploadedAt),
+  );
+
+  return {
+    tags,
+    kept: ordered.slice(0, keepLatest),
+    doomed: ordered.slice(keepLatest),
+    imageCount,
+    budgetWarning: orgBudgetWarning(keepLatest, imageCount),
+  };
+}
+
+/**
+ * `--keep-latest` under `--output json`.
+ *
+ * The deletions run *before* anything is printed. Reporting the doomed tags as
+ * `deleted` up front claimed successes that had not happened yet, and a later
+ * partial failure then printed a second document — two JSON values on one
+ * stdout, which no parser accepts. One document, after the fact.
+ */
+async function keepLatestAsJson(
+  provider: string,
+  organization: string,
+  image: string,
+  plan: KeepLatestPlan,
+  opts: { keepLatest: number; dryRun: boolean; skipConfirmation: boolean },
+): Promise<void> {
+  const { kept, doomed, imageCount, budgetWarning } = plan;
+  const willDelete = !opts.dryRun && doomed.length > 0;
+
+  // The gate belongs here, not only on the table path: `--output json` is the
+  // mode a release pipeline runs in, so skipping it would leave the one
+  // unconfirmed delete in this file on the one path where a mistake is least
+  // likely to be noticed. The decline reports itself as the document rather
+  // than as the table path's prose line — stdout carries one JSON value.
+  if (
+    willDelete &&
+    !(await confirmKeepLatest(
+      sanitizeText(image),
+      doomed.length,
+      opts.skipConfirmation,
+    ))
+  ) {
+    printJson({
+      imageName: image,
+      keepLatest: opts.keepLatest,
+      dryRun: false,
+      kept: kept.map((t) => t.tag),
+      // An array, not `false` as the single-tag delete reports: `deleted`
+      // names tags in this mode, and changing its type between outcomes would
+      // make every consumer branch before it could read it.
+      deleted: [],
+      aborted: true,
+      ...(imageCount !== undefined ? { organizationImageCount: imageCount } : {}),
+      ...(budgetWarning ? { warning: budgetWarning } : {}),
+    });
+    return;
+  }
+
+  const outcome: DeletionOutcome = willDelete
+    ? await deleteTagsInSequence(provider, organization, image, doomed, true)
+    : { deleted: [], failures: [] };
+
+  printJson({
+    imageName: image,
+    keepLatest: opts.keepLatest,
+    dryRun: opts.dryRun,
+    kept: kept.map((t) => t.tag),
+    deleted: outcome.deleted,
+    wouldDelete: opts.dryRun ? doomed.map((t) => t.tag) : undefined,
+    ...(outcome.failures.length > 0 ? { failures: outcome.failures } : {}),
+    ...(imageCount !== undefined ? { organizationImageCount: imageCount } : {}),
+    ...(budgetWarning ? { warning: budgetWarning } : {}),
+  });
+
+  // Same contract as the table path: a partial cleanup is a real failure for
+  // the caller, and `--output json` is the mode a release pipeline runs in —
+  // the mode where a silent zero exit is most expensive.
+  if (outcome.failures.length > 0) process.exitCode = 1;
+}
+
+function printNothingToDelete(
+  label: string,
+  tagCount: number,
+  keepLatest: number,
+): void {
+  console.log(
+    ansis.green(
+      `\n${label} has ${formatCount(tagCount)} ${pluralize("tag", tagCount)}, at or under the ${formatCount(keepLatest)} to keep. Nothing to delete.`,
+    ),
+  );
+}
+
+/** The "what is about to happen" block: one sentence, then the keep/delete table. */
+function printKeepLatestPlan(
+  label: string,
+  { tags, kept, doomed }: KeepLatestPlan,
+  opts: { keepLatest: number; dryRun: boolean },
+): void {
+  console.log(
+    `\n${opts.dryRun ? "Would delete" : "Deleting"} ${ansis.bold(String(doomed.length))} of ${formatCount(tags.length)} ${pluralize("tag", tags.length)} on ${label}, keeping the ${formatCount(opts.keepLatest)} most recently uploaded:\n`,
+  );
+  console.log(renderKeepLatestTable(kept, doomed));
+}
+
+function renderKeepLatestTable(
+  kept: ImageTagSummary[],
+  doomed: ImageTagSummary[],
+): string {
+  const table = createTable({ head: ["", "Tag", "Uploaded"] });
+  for (const tag of kept) {
+    table.push([ansis.green("keep"), sanitizeText(tag.tag), formatFriendlyDate(tag.uploadedAt)]);
+  }
+  for (const tag of doomed) {
+    table.push([ansis.red("delete"), sanitizeText(tag.tag), formatFriendlyDate(tag.uploadedAt)]);
+  }
+  return table.toString();
+}
+
+async function executeKeepLatest(
+  provider: string,
+  organization: string,
+  image: string,
+  opts: {
+    keepLatest: number;
+    dryRun: boolean;
+    skipConfirmation: boolean;
+    json: boolean;
+  },
+): Promise<void> {
+  const label = sanitizeText(image);
+  const plan = await planKeepLatest(
+    provider,
+    organization,
+    image,
+    opts.keepLatest,
+  );
+  const { tags, doomed, budgetWarning } = plan;
+
+  if (opts.json) {
+    await keepLatestAsJson(provider, organization, image, plan, opts);
+    return;
+  }
+
+  if (budgetWarning) console.log(ansis.yellow(`\n${budgetWarning}`));
+
+  // Nothing to do is the common case in a pipeline that runs this every
+  // release, so it exits cleanly rather than treating it as an error.
+  if (doomed.length === 0) {
+    printNothingToDelete(label, tags.length, opts.keepLatest);
+    return;
+  }
+
+  printKeepLatestPlan(label, plan, opts);
+
+  if (opts.dryRun) {
+    console.log(
+      ansis.dim("\nDry run — nothing was deleted. Drop --dry-run to apply."),
+    );
+    return;
+  }
+
+  if (!(await confirmKeepLatest(label, doomed.length, opts.skipConfirmation))) {
+    console.log(ansis.dim(`Aborted — nothing was deleted. ${ABORT_HINT}`));
+    return;
+  }
+
+  const outcome = await deleteTagsInSequence(
+    provider,
+    organization,
+    image,
+    doomed,
+    false,
+  );
+  // A partial cleanup is a real failure for the caller: the pipeline step that
+  // follows may still hit the cap.
+  if (outcome.failures.length > 0) process.exitCode = 1;
+}
+
+/**
+ * Whether to go ahead. Deciding only — the caller reports the decline, because
+ * the two output modes report it differently and a prose line printed from
+ * here would land in the middle of `--output json`'s single document.
+ */
+async function confirmKeepLatest(
+  label: string,
+  count: number,
+  skipConfirmation: boolean,
+): Promise<boolean> {
+  if (skipConfirmation) return true;
+
+  return confirmAction(
+    `Delete ${count} ${pluralize("tag", count)} from ${label}? This cannot be undone.`,
+  );
+}
+
+/**
+ * Delete tags one at a time, carrying on past a failure.
+ *
+ * Sequential rather than parallel. The original reason — each delete zero-filled
+ * organization-wide Container Scanning metrics — is gone (fixed backend-side,
+ * 2026-09-21), but the shape is kept: a cleanup run is not latency-sensitive, it
+ * happens before the upload rather than in front of a waiting user, and one
+ * request at a time is what makes "deleted 77 of 80, here are the 3 that failed"
+ * straightforward to report. Carrying on past a failure is what makes the
+ * command idempotent for a pipeline — a run that gives up at tag 3 of 80 leaves
+ * the org no better off, and the next release hits the same wall.
+ */
+type DeletionOutcome = {
+  deleted: string[];
+  failures: Array<{ tag: string; reason: string }>;
+};
+
+async function deleteTagsInSequence(
+  provider: string,
+  organization: string,
+  image: string,
+  tags: ImageTagSummary[],
+  json: boolean,
+): Promise<DeletionOutcome> {
+  const spinner = json
+    ? undefined
+    : ora(`Deleting 0/${tags.length} tags...`).start();
+  const outcome: DeletionOutcome = { deleted: [], failures: [] };
+
+  for (const [index, tag] of tags.entries()) {
+    try {
+      await SbomService.deleteImageTag(provider, organization, image, tag.tag);
+      outcome.deleted.push(tag.tag);
+    } catch (err) {
+      outcome.failures.push({
+        // errorReason, not err.message: for an ApiError the latter is the
+        // generated client's static status table, so every failure in the
+        // report read "Bad Request". This loop is the one place that formats
+        // an API error without going through handleError.
+        tag: tag.tag,
+        reason: errorReason(err),
+      });
+    }
+    if (spinner) spinner.text = `Deleting ${index + 1}/${tags.length} tags...`;
+  }
+
+  // Under `--output json` the caller owns stdout: it folds this outcome into
+  // the single document it prints once every request has finished. Nothing is
+  // reported here, because nothing here knows the run is over.
+  if (spinner) reportDeletions(spinner, image, tags.length, outcome);
+
+  return outcome;
+}
+
+function reportDeletions(
+  spinner: Ora,
+  image: string,
+  attempted: number,
+  { deleted, failures }: DeletionOutcome,
+): void {
+  if (failures.length === 0) {
+    spinner.succeed(
+      `Deleted ${ansis.bold(String(deleted.length))} ${pluralize("tag", deleted.length)} from ${sanitizeText(image)}.`,
+    );
+    return;
+  }
+
+  spinner.warn(
+    `Deleted ${deleted.length} of ${attempted} ${pluralize("tag", attempted)}; ${failures.length} failed.`,
+  );
+  for (const failure of failures) {
+    console.log(
+      ansis.red(`  ${sanitizeText(failure.tag)}: ${sanitizeText(failure.reason)}`),
+    );
+  }
+}
+
+/**
  * `--delete`, scoped by `--tag` when it is given: one tag's SBOM, or the image
  * and every SBOM under it.
  */
@@ -455,18 +894,38 @@ async function executeDelete(
   image: string,
   tag: string | undefined,
   skipConfirmation: boolean,
+  dryRun: boolean,
   json: boolean,
 ): Promise<void> {
   const label = tag
     ? `${sanitizeText(image)}:${sanitizeText(tag)}`
     : sanitizeText(image);
 
+  if (dryRun) {
+    const scope = tag
+      ? `the SBOM for ${label}`
+      : `${label} and ${await describeTagCount(provider, organization, image)}`;
+    if (json) {
+      printJson({
+        imageName: image,
+        ...(tag ? { tag } : {}),
+        dryRun: true,
+        deleted: false,
+      });
+      return;
+    }
+    console.log(`\nWould delete ${scope}.`);
+    console.log(
+      ansis.dim("\nDry run — nothing was deleted. Drop --dry-run to apply."),
+    );
+    return;
+  }
+
   if (!skipConfirmation) {
     const scope = tag
       ? `the SBOM for ${label}`
       : `${label} and ${await describeTagCount(provider, organization, image)}`;
 
-    console.error(ansis.yellow(METRICS_WIPE_NOTICE));
     const confirmed = await confirmAction(
       `Delete ${scope}? This cannot be undone.`,
     );
