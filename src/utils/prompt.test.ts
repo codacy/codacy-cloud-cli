@@ -37,9 +37,8 @@ describe("confirmAction", () => {
       input: process.stdin,
       output: process.stderr,
     });
-    const { output } = vi.mocked(readline.createInterface).mock.calls[0][0] as {
-      output: NodeJS.WriteStream;
-    };
+    const { output } = vi.mocked(readline.createInterface).mock
+      .calls[0][0] as unknown as { output: NodeJS.WritableStream };
     expect(output).not.toBe(process.stdout);
   });
 
