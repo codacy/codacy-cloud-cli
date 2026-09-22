@@ -1,5 +1,41 @@
 # @codacy/codacy-cloud-cli
 
+## 1.12.0
+
+### Minor Changes
+
+- [#50](https://github.com/codacy/codacy-cloud-cli/pull/50) [`4dfa3dd`](https://github.com/codacy/codacy-cloud-cli/commit/4dfa3ddce3c7bc4ff2033fdf0dfe48725862b725) Thanks [@claudiacodacy](https://github.com/claudiacodacy)! - Add `codacy image <provider> <org> <image> --tag <tag> --upload <file>` to upload an SBOM (SPDX or CycloneDX) for a container image tag.
+
+  `-e, --environment <name>` and `-r, --repository <name>` optionally record where the image is deployed and which repository it belongs to. The file is checked before the request, so a wrong path or an empty file fails immediately.
+
+- [#49](https://github.com/codacy/codacy-cloud-cli/pull/49) [`a389153`](https://github.com/codacy/codacy-cloud-cli/commit/a3891534004f217c7a2592a94a88a625b6331497) Thanks [@claudiacodacy](https://github.com/claudiacodacy)! - Add `images` and `image` commands for container images with SBOMs uploaded to an organization.
+
+  `codacy images <provider> <org>` lists images with their latest tag and last upload/generation dates.
+
+  `codacy image <provider> <org> <image>` lists that image's tags (environment, repository, generated/uploaded/last-analysed dates), shows a single one with `-t, --tag <tag>`, and deletes with `-D, --delete` — the whole image on its own, or just one tag when combined with `--tag`. Under `--output json` a declined confirmation reports itself as `{"deleted": false, "aborted": true}` rather than a prose line, so stdout stays parseable. Deletes confirm first (`-y, --skip-confirmation` bypasses it for CI).
+
+  Both commands require an account API token.
+
+- [#52](https://github.com/codacy/codacy-cloud-cli/pull/52) [`260b59a`](https://github.com/codacy/codacy-cloud-cli/commit/260b59ae468de773b3e58a40831801264231bfbb) Thanks [@claudiacodacy](https://github.com/claudiacodacy)! - Add `codacy image <provider> <org> <image> --delete --keep-latest <n>` to clean up old image tags, keeping the n most recently uploaded and deleting the rest. Intended as the cleanup step of a release pipeline, which runs before the SBOM upload.
+
+  `--dry-run` shows exactly which tags would be kept and deleted without deleting anything.
+
+  Under `--output json` the command emits one object after every delete has been attempted: `deleted` lists the tags that actually went and `failures` the ones that did not, and the exit code is non-zero when there are any. Deletes run one at a time and continue past failures, so a partial cleanup still frees space; the exit code is non-zero if any tag failed.
+
+  Confirmation applies in every output mode, including `--output json` — `-y, --skip-confirmation` is how a pipeline says yes ahead of time, and a declined prompt emits `{"deleted": [], "aborted": true}`. An empty or whitespace-only `--keep-latest` is rejected rather than read as `0`, so `--keep-latest "$KEEP_COUNT"` with the variable unset fails loudly instead of deleting every tag.
+
+  Because the organization tag cap counts image-and-tag pairs while `--keep-latest` applies per image, the command warns when keeping n tags across every image in the organization would exceed the default 1,000-tag cap, and says what the cap allows per image instead.
+
+### Patch Changes
+
+- [#52](https://github.com/codacy/codacy-cloud-cli/pull/52) [`260b59a`](https://github.com/codacy/codacy-cloud-cli/commit/260b59ae468de773b3e58a40831801264231bfbb) Thanks [@claudiacodacy](https://github.com/claudiacodacy)! - Show the error message Codacy actually returned instead of a generic status name. Failures that used to print `Error: Not Found` now print what went wrong — for example `Error: Could not find repository gh/my-org/my-repo (HTTP 404)`, `Error: Bad credentials (HTTP 401)`, or `Error: SBOM tag mismatch: expected 9.9.9, found 3.20 (HTTP 400)`. This affects every command. Where the API sends no explanation, the output is unchanged.
+
+  Only a body that plausibly _is_ a message is used: not every error response is JSON, so a proxy or load balancer answering with an HTML error page falls back to the status name (`Error: Bad Gateway`) rather than dumping the page into the terminal. The same applies to `image --delete --keep-latest`, whose per-tag failure list reported `Bad Request` for every failure because it formats errors at its own call site.
+
+- [#49](https://github.com/codacy/codacy-cloud-cli/pull/49) [`a389153`](https://github.com/codacy/codacy-cloud-cli/commit/a3891534004f217c7a2592a94a88a625b6331497) Thanks [@claudiacodacy](https://github.com/claudiacodacy)! - Confirmation prompts are now written to stderr instead of stdout.
+
+  `--output json` promises that stdout carries exactly one JSON document, and `process.stdin.isTTY` is still true when stdout is a pipe — so `codacy image gh my-org my-service --tag 1.2.3 --delete --output json | jq` sent the question and the echoed keystroke into `jq`, which failed on them. The prompt is interaction, not program output, so it now goes to stderr alongside the spinners and error lines, for every command that confirms (`image --delete`, `issues --ignore`, `tools --import`). Interactive runs look the same; piped ones no longer break.
+
 ## 1.11.0
 
 ### Minor Changes
