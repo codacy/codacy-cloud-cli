@@ -49,6 +49,7 @@ This is the single source of truth for all project tasks and specs.
 
 | Date | What was done |
 |---|---|
+| 2026-09-22 | (OD-710) **Fix: path parameters are now escaped per segment.** Every `image` subcommand 404'd against a namespaced image name — `codacy/codacy-website`, the shape of all seven images in `gh/codacy` — because the generated client falls back to `encodeURI` when `OpenAPI.ENCODE_PATH` is unset, and `encodeURI` leaves `/` intact by design: it encodes whole URLs, not the segments they are built from. The value expanded into two segments and hit a route that does not exist; verified against the API, where the raw slash returns 404 and `%2F` returns 200. `src/utils/api-path.ts` exports `encodePathSegment` (`encodeURIComponent`) and `src/index.ts` installs it beside `OpenAPI.BASE` — the generated client is untouched, so `npm run update-api` cannot undo it. The encoder is global, which is correct rather than incidental: `{branchName}` and `{filePath}` carry slashes for the same reason, though no shipped command sends either as a path parameter today, so nothing else changes shape. Confirmed end to end against `gh/codacy` after the fix: `images` lists 7, `image codacy/codacy-website` lists 84 tags, `--delete --keep-latest 10 --dry-run` reports 74 of 84 (5 new tests, 767 total) |
 | 2026-02-17 | Project setup: Vitest, `--output json`, `src/index.ts` cleaned up |
 | 2026-02-17 | `info` command + tests (4 tests) |
 | 2026-02-17 | `repositories` command + tests (5 tests) |

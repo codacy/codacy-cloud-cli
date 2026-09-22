@@ -6,6 +6,7 @@ import { getOutputFormat } from "./utils/output";
 import { BASE_HEADERS, repositoryTokenOption } from "./utils/auth";
 import { maybeNotifyUpdate } from "./utils/update-check";
 import { configureProxyFromEnv } from "./utils/proxy";
+import { encodePathSegment } from "./utils/api-path";
 import { registerInfoCommand } from "./commands/info";
 import { registerRepositoriesCommand } from "./commands/repositories";
 import { registerRepositoryCommand } from "./commands/repository";
@@ -37,6 +38,9 @@ const program = new Command();
 configureProxyFromEnv();
 
 OpenAPI.BASE = (process.env.CODACY_API_BASE_URL || "https://app.codacy.com").replace(/\/$/, "") + "/api/v3";
+// Path params are single segments. Without this the client uses `encodeURI`,
+// which leaves "/" intact — see `utils/api-path`.
+OpenAPI.ENCODE_PATH = encodePathSegment;
 // No token here. Which header carries it depends on the token kind, which isn't
 // known until a command resolves its auth — every API path installs headers
 // first, via `resolveAuth()` in commands or `applyAccountToken()` in `login`.
