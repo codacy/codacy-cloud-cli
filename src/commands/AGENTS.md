@@ -369,7 +369,7 @@ Keeps the two command handlers thin: they only supply the API-specific callbacks
 - **`--ignore` mode** (`-I`): fetches all issues matching current filters (all pages), then calls `AnalysisService.bulkIgnoreIssues` in batches of 100
   - `-R, --ignore-reason`: `AcceptedUse` (default) | `FalsePositive` | `NotExploitable` | `TestCode` | `ExternalCode`
   - `-m, --ignore-comment`: optional free-text comment
-  - **Confirmation** (`-y, --skip-confirmation`): the ignore is destructive and applies to *all* matching issues, so `executeBulkIgnore` prompts via `confirmAction` (shared `utils/prompt.ts`) after printing the count, and only proceeds on an explicit `y`. `--skip-confirmation` skips the prompt for CI/scripts. `confirmAction` returns `false` on a non-TTY, so a non-interactive run without the flag aborts rather than ignoring by accident. Same `-y` short flag as `tools --import`'s `--skip-approval`. Confirmation happens *after* fetching (so the count is shown) but *before* any `bulkIgnoreIssues` call
+  - **Confirmation** (`-y, --skip-confirmation`): the ignore is destructive and applies to *all* matching issues, so `executeBulkIgnore` prompts via `confirmAction` (shared `utils/prompt.ts`) after printing the count, and only proceeds on an explicit `y`. `--skip-confirmation` skips the prompt for CI/scripts. `confirmAction` returns `false` on a non-TTY **stdin**, so a non-interactive run without the flag aborts rather than ignoring by accident. **The prompt is written to stderr, not stdout** — a confirmation is interaction, not program output, and `process.stdin.isTTY` stays true when stdout is a pipe, so a prompt on stdout lands in the consumer's parser. That is what lets a `--output json` command confirm at all without threading its output format into `utils/prompt.ts`. Same `-y` short flag as `tools --import`'s `--skip-approval`. Confirmation happens *after* fetching (so the count is shown) but *before* any `bulkIgnoreIssues` call
   - Cannot be combined with `--overview` or `--limit`
   - Works with any combination of filters; use `--false-positives --ignore` to ignore only FP issues
 - **`--ignored` mode** (`-i`): boolean flag that lists ignored issues instead of active ones. Modeled as a boolean flag for consistency with the other boolean filter, `--false-positives` (not a `--state <value>` selector). `-i` is the natural short flag; note it is distinct from `-I/--ignore` (the bulk-ignore *action*) — `-i` lists already-ignored issues, `-I` ignores matching active ones. Omitting the flag keeps the existing active-issues behavior unchanged
@@ -462,3 +462,39 @@ printJson(items.map((item: any) => pickDeep(item, [...])));
 - Commit SHAs: include the full SHA (not truncated)
 - Dates: include full ISO timestamps (not formatted)
 - IDs: only include IDs already shown in console output
+
+## images / image commands (`images.ts`, `image.ts`)
+
+Container images with SBOMs uploaded to an organization, and the tags under
+them. Full design in [`SPECS/commands/images.md`](../../SPECS/commands/images.md);
+the parts that constrain future edits:
+
+- **Account token only, both commands, every mode.** No image operation is on
+  the repository-token whitelist, so both call `resolveAccountAuth(this, …)` and
+  refuse before any request. Their refusal cases live in the cross-cutting
+  `repository-token-refusals.test.ts`, not in their own suites.
+- **`images` must stay one request per page.** The tag count is the number an
+  org at the 1000-tag cap wants, but `ImageSummary` doesn't carry one and
+  deriving it costs an extra request per image. It is being added server-side
+  (pending task in `SPECS/README.md`) — don't reintroduce a client-side fan-out
+  to fake it in the meantime.
+- **`--delete` is the action, `--tag` is the scope.** Same split as
+  `issues --ignore` and its filters: one verb, narrowed by the same flag that
+  narrows the read. `--tag` alone shows that tag; `--delete` alone takes the
+  whole image; together they take one tag. Adding a second delete flag would
+  bring back the mutual-exclusion guard this shape exists to avoid.
+- **The single-tag lookup pages.** The tags endpoint has no per-tag filter, so
+  `--tag` without `--delete` pages the listing and matches exactly — the shape
+  `pull-request --issue <id>` uses. `--tag --delete` deliberately skips it: the
+  API 404s on a missing tag, which is the same answer for one fewer call.
+- **The metrics-wipe notice is temporary.** Deleting any SBOM currently
+  zero-fills Container Scanning metrics for the whole organization until the
+  next nightly scan, so both delete scopes print `METRICS_WIPE_NOTICE` above the
+  confirmation. Delete the constant (and its test) once the backend fix ships.
+  It is also why bulk tag cleanup (`--keep-latest`) is not here yet: a delete
+  loop fires the wipe once per tag.
+- **`describeTagCount` must never block a delete.** It exists only to make the
+  whole-image prompt concrete ("all 85 of its tags"); a failed or `total`-less
+  lookup falls back to vaguer wording rather than throwing, and `-y` skips it.
+- **Sanitize everything that came in with the upload** — image name, tag,
+  environment, repository name are all user-controlled.

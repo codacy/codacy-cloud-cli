@@ -60,6 +60,7 @@ Codacy accepts repository tokens on a **limited set of repository-scoped operati
 | `issues` (including `--overview`) | `issues --ignore`, `issues --ignored`, `issue` |
 | `repository`, `repository --reanalyze` | `repository --add`/`--remove`/`--follow`/`--unfollow`/`--link-standard`/`--unlink-standard` |
 | | `pull-request`, `pull-requests`, `ls`, `directories`, `findings`, `finding` |
+| | `images`, `image` |
 
 `codacy repository` works, but omits the pull request section — that endpoint doesn't accept repository tokens. In `--output json` it marks it as `"unavailable": ["pullRequests"]`, so a consumer can tell "none" apart from "couldn't look". Everything else, including the coverage status, is available.
 
@@ -154,6 +155,8 @@ Supported providers: GitHub (`gh`), GitLab (`gl`), Bitbucket (`bb`).
 | `tool [provider] [org] [repo] <tool>` | Enable, disable, or configure an analysis tool |
 | `patterns [provider] [org] [repo] <tool>` | List patterns for a tool, or bulk enable/disable them |
 | `pattern [provider] [org] [repo] <tool> <id>` | Show a pattern, or enable, disable, or set parameters for it |
+| `images <provider> <org>` | List Docker images with SBOMs uploaded to an organization |
+| `image <provider> <org> <image>` | List an image's tags, show one tag, or delete a tag or the whole image |
 
 Run `codacy <command> --help` for full argument and option details for any command.
 

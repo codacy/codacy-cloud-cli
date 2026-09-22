@@ -101,6 +101,7 @@ none. `issues -T <name>` and the `issues -O` noise suggestions rely on this.
 | `repository --reanalyze` / `--reanalyze-and-wait` | ✅ |
 | `repository --add/--remove/--follow/--unfollow/--link-standard/--unlink-standard` | ❌ refused |
 | `info`, `repositories`, `ls`, `directories`, `pull-request`, `pull-requests`, `issue`, `findings`, `finding` | ❌ refused |
+| `images`, `image` (all modes) | ❌ refused — organization-level SBOM operations, none whitelisted |
 | `login`, `logout` | Warn that the flag is ignored |
 
 Every invocation in the `configure-codacy-cloud` skill lands in ✅ or the

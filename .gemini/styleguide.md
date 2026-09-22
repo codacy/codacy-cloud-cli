@@ -41,3 +41,13 @@ concerns.
 ## Generated files
 - `package-lock.json` and everything under `src/api/client/**` are generated.
   Complexity, duplication, and size findings on these are false positives.
+
+## Terminal output that looks like markup
+- Angle brackets in help text, hints and error messages are CLI placeholder
+  notation for an argument (`--tag <tag>`, `<image>`), not HTML. A
+  "template literal looks like HTML" finding on CLI copy is a false positive —
+  nothing here reaches a browser.
+- Before flagging a missing `sanitizeText()`, check the sink: values that came
+  back from the **API** are the untrusted ones. A value the user typed on their
+  own command line is not, and neither is the `console.log` boundary or the
+  `--output json` path. `AGENTS.md` lists the sinks.
