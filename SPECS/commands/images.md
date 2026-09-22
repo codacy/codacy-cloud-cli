@@ -110,12 +110,18 @@ API 404s on a tag that isn't there, which is the same answer at a lower cost.
 
 **`--output json` owns stdout.** A declined confirmation reports itself as
 `{deleted: false, aborted: true}`, so stdout carries exactly one JSON document
-and a pipeline reading it never has to skip prose.
+and a pipeline reading it never has to skip prose. The confirmation *question*
+goes to stderr for the same reason: `process.stdin.isTTY` is still true when
+stdout is a pipe, so a prompt written to stdout lands in the consumer's parser
+rather than in front of the user who has to answer it — `… --delete
+--output json | jq` failed on it.
 
 **Confirmation.** Every delete scope prompts via the shared `confirmAction`
 (`utils/prompt.ts`) and proceed only on an explicit `y`; `-y` bypasses it for CI.
-`confirmAction` returns `false` on a non-TTY, so a non-interactive run without
-`-y` aborts rather than deleting by accident — same rule as `issues --ignore`.
+`confirmAction` returns `false` on a non-TTY **stdin**, so a non-interactive run
+without `-y` aborts rather than deleting by accident — same rule as
+`issues --ignore`. The prompt itself is written to stderr, so no output mode has
+to thread its format down into `utils/prompt.ts`.
 
 A whole-image `--delete` fetches the tag count first (`limit: 1`, for
 `pagination.total`) so the prompt can name how many tags are about to go — the
@@ -185,6 +191,21 @@ upload-then-delete *fails at the cap* and can strand an org there
   the org no better off and the next release hits the same wall, so every tag is
   attempted and the failures are listed. The exit code is still 1 — a partial
   cleanup is a real failure for the step that follows.
+
+**Confirmation applies in every output mode.** `--output json` gates on the same
+`confirmKeepLatest` the table path uses and reports a decline as
+`{deleted: [], aborted: true}` — an array rather than the single-tag delete's
+`false`, because `deleted` names tags in this mode and changing its type between
+outcomes would make every consumer branch before it could read the field. JSON
+is the mode a release pipeline runs in, so an ungated delete here would be the
+one unconfirmed delete in the file on the path where a mistake is least likely
+to be noticed. Nothing is asked when nothing would be deleted (`--dry-run`, or
+an image already at or under `n`).
+
+**An empty `--keep-latest` is refused, not read as `0`.** `Number("")` and
+`Number("   ")` are both `0` and `0` is a valid count, so the integer guard
+alone accepted `--keep-latest "$KEEP_COUNT"` with the variable unset and doomed
+every tag. Same shape as `auth.ts`'s empty `--repository-token` guard.
 
 **`--output json` emits one document, after the fact.** Nothing is printed until
 every delete has been attempted, so `deleted` names the tags that actually went

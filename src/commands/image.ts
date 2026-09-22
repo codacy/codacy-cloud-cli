@@ -502,7 +502,11 @@ async function executeUpload(
  */
 function parseKeepLatest(value: string): number {
   const n = Number(value);
-  if (!Number.isInteger(n) || n < 0) {
+  // `Number("")` and `Number("   ")` are both 0, and 0 is a valid count — so
+  // without this an unset `--keep-latest "$KEEP_COUNT"` in a pipeline reads as
+  // "keep none" and dooms every tag. Same shape as `auth.ts`'s empty
+  // `--repository-token` guard, for the same reason.
+  if (value.trim() === "" || !Number.isInteger(n) || n < 0) {
     throw new Error(
       `--keep-latest expects a non-negative whole number, got '${value}'.`,
     );
@@ -632,13 +636,43 @@ async function keepLatestAsJson(
   organization: string,
   image: string,
   plan: KeepLatestPlan,
-  opts: { keepLatest: number; dryRun: boolean },
+  opts: { keepLatest: number; dryRun: boolean; skipConfirmation: boolean },
 ): Promise<void> {
   const { kept, doomed, imageCount, budgetWarning } = plan;
-  const outcome: DeletionOutcome =
-    opts.dryRun || doomed.length === 0
-      ? { deleted: [], failures: [] }
-      : await deleteTagsInSequence(provider, organization, image, doomed, true);
+  const willDelete = !opts.dryRun && doomed.length > 0;
+
+  // The gate belongs here, not only on the table path: `--output json` is the
+  // mode a release pipeline runs in, so skipping it would leave the one
+  // unconfirmed delete in this file on the one path where a mistake is least
+  // likely to be noticed. The decline reports itself as the document rather
+  // than as the table path's prose line — stdout carries one JSON value.
+  if (
+    willDelete &&
+    !(await confirmKeepLatest(
+      sanitizeText(image),
+      doomed.length,
+      opts.skipConfirmation,
+    ))
+  ) {
+    printJson({
+      imageName: image,
+      keepLatest: opts.keepLatest,
+      dryRun: false,
+      kept: kept.map((t) => t.tag),
+      // An array, not `false` as the single-tag delete reports: `deleted`
+      // names tags in this mode, and changing its type between outcomes would
+      // make every consumer branch before it could read it.
+      deleted: [],
+      aborted: true,
+      ...(imageCount !== undefined ? { organizationImageCount: imageCount } : {}),
+      ...(budgetWarning ? { warning: budgetWarning } : {}),
+    });
+    return;
+  }
+
+  const outcome: DeletionOutcome = willDelete
+    ? await deleteTagsInSequence(provider, organization, image, doomed, true)
+    : { deleted: [], failures: [] };
 
   printJson({
     imageName: image,
@@ -740,6 +774,7 @@ async function executeKeepLatest(
   }
 
   if (!(await confirmKeepLatest(label, doomed.length, opts.skipConfirmation))) {
+    console.log(ansis.dim(`Aborted — nothing was deleted. ${ABORT_HINT}`));
     return;
   }
 
@@ -755,7 +790,11 @@ async function executeKeepLatest(
   if (outcome.failures.length > 0) process.exitCode = 1;
 }
 
-/** Whether to go ahead, printing the abort line when the answer is no. */
+/**
+ * Whether to go ahead. Deciding only — the caller reports the decline, because
+ * the two output modes report it differently and a prose line printed from
+ * here would land in the middle of `--output json`'s single document.
+ */
 async function confirmKeepLatest(
   label: string,
   count: number,
@@ -763,13 +802,9 @@ async function confirmKeepLatest(
 ): Promise<boolean> {
   if (skipConfirmation) return true;
 
-  const confirmed = await confirmAction(
+  return confirmAction(
     `Delete ${count} ${pluralize("tag", count)} from ${label}? This cannot be undone.`,
   );
-  if (!confirmed) {
-    console.log(ansis.dim(`Aborted — nothing was deleted. ${ABORT_HINT}`));
-  }
-  return confirmed;
 }
 
 /**
