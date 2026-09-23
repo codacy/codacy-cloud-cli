@@ -1058,6 +1058,79 @@ describe("pull-request command", () => {
     });
   });
 
+  describe("dependency chains (SCA)", () => {
+    it("should show the dependency chain block in --issue <id> detail view", async () => {
+      vi.mocked(AnalysisService.listPullRequestIssues)
+        .mockResolvedValueOnce({
+          data: [
+            {
+              ...mockNewIssues.data[2],
+              commitIssue: {
+                ...mockNewIssues.data[2].commitIssue,
+                dependencyChains: [["root-app", "lodash", "vulnerable-pkg"]],
+              },
+            },
+          ],
+          pagination: undefined,
+        } as any)
+        .mockResolvedValueOnce({
+          data: mockPotentialIssues.data,
+          pagination: undefined,
+        } as any);
+      vi.mocked(ToolsService.getPattern).mockResolvedValue({
+        data: mockPattern,
+      } as any);
+      vi.mocked(FileService.getFileContent).mockResolvedValue({
+        data: mockFileLines,
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "pull-request", "gh", "test-org", "test-repo", "42",
+        "--issue", "3",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).toContain("Transitive - root-app → lodash → vulnerable-pkg");
+    });
+
+    it("should include dependencyChains in --issue JSON output", async () => {
+      vi.mocked(AnalysisService.listPullRequestIssues)
+        .mockResolvedValueOnce({
+          data: [
+            {
+              ...mockNewIssues.data[2],
+              commitIssue: {
+                ...mockNewIssues.data[2].commitIssue,
+                dependencyChains: [["root-app", "lodash", "vulnerable-pkg"]],
+              },
+            },
+          ],
+          pagination: undefined,
+        } as any)
+        .mockResolvedValueOnce({
+          data: mockPotentialIssues.data,
+          pagination: undefined,
+        } as any);
+      vi.mocked(ToolsService.getPattern).mockResolvedValue({
+        data: mockPattern,
+      } as any);
+      vi.mocked(FileService.getFileContent).mockResolvedValue({
+        data: mockFileLines,
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "--output", "json", "pull-request", "gh", "test-org", "test-repo", "42",
+        "--issue", "3",
+      ]);
+
+      expect(console.log).toHaveBeenCalledWith(
+        expect.stringContaining('"dependencyChains"'),
+      );
+    });
+  });
+
   // ─── Diff Coverage Summary ─────────────────────────────────────────────
 
   it("should show Diff Coverage Summary when coverage data is available", async () => {

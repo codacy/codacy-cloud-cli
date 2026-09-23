@@ -88,6 +88,13 @@ Same per-chain rules as `findings` (direct → `Update <pkg> to <fixedVersion>`;
 transitive → `<chain> (Fixed in <fixedVersion>)`; 4+ packages collapse the middle
 to `<first> → ... N more ... → <last>`). See `SPECS/commands/findings.md`.
 
+Skipped when the linked Codacy issue carries its own `issue.dependencyChains` (added
+OD-449) — `printIssueCodeContext` renders those instead, so printing the item-level
+block too would duplicate it. Gated on the issue's chains, not on the issue existing,
+so a linked issue without chains still gets the item-level block. That call passes `item.fixedVersion` through as
+`printIssueCodeContext`'s `dependencyChainsFixedVersion` param so the merged block still
+carries the fixed version — `CommitIssue` itself has no `fixedVersion` field to draw on.
+
 ## Tests
 
-File: `src/commands/finding.test.ts` — 26 tests (23 + 3 for advisoryInformation).
+File: `src/commands/finding.test.ts` — 29 tests (27 + 2 for the linked-issue dependency-chain dedup).

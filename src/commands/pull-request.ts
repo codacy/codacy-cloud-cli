@@ -1096,6 +1096,7 @@ Examples:
               "issue.advisoryInformation.advisoryId",
               "issue.advisoryInformation.vulnerableFunctions",
               "issue.advisoryInformation.publishedAt",
+              "issue.dependencyChains",
               // Pattern
               "pattern.id",
               "pattern.title",

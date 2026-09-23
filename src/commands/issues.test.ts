@@ -1730,6 +1730,48 @@ describe("issues command", () => {
     });
   });
 
+  describe("dependency chains (SCA)", () => {
+    it("should show a dependency chain line on the card when present", async () => {
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: [{ ...mockIssues[0], dependencyChains: [["root-app", "lodash", "vulnerable-pkg"]] }],
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "issues", "gh", "test-org", "test-repo"]);
+
+      const output = getAllOutput();
+      expect(output).toContain("Transitive - root-app → lodash → vulnerable-pkg");
+    });
+
+    it("should not show a dependency chain line when absent", async () => {
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: mockIssues,
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "issues", "gh", "test-org", "test-repo"]);
+
+      const output = getAllOutput();
+      expect(output).not.toContain("Transitive -");
+      expect(output).not.toContain("Direct -");
+    });
+
+    it("should include dependencyChains in JSON output", async () => {
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: [{ ...mockIssues[0], dependencyChains: [["root-app", "lodash", "vulnerable-pkg"]] }],
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "--output", "json", "issues", "gh", "test-org", "test-repo",
+      ]);
+
+      expect(console.log).toHaveBeenCalledWith(
+        expect.stringContaining('"dependencyChains"'),
+      );
+    });
+  });
+
   describe("auto-detect from git remote", () => {
     it("should auto-detect repo when no positional args are provided", async () => {
       vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
@@ -1822,6 +1864,30 @@ describe("issues command", () => {
       const output = getAllOutput();
       expect(output).toContain("Ignored as AcceptedUse by John Ops");
       expect(output).not.toContain("Comment:");
+    });
+
+    it("does not render a dependency chain even if the API sends one on an ignored issue", async () => {
+      vi.mocked(
+        AnalysisService.searchRepositoryIgnoredIssues,
+      ).mockResolvedValue({
+        data: [
+          {
+            ...mockIgnoredIssues[0],
+            dependencyChains: [["root-app", "lodash", "vulnerable-pkg"]],
+          },
+        ],
+        pagination: undefined,
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--ignored",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).not.toContain("Transitive -");
+      expect(output).not.toContain("Direct -");
     });
 
     it("shows an empty message when there are no ignored issues", async () => {

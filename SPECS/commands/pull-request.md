@@ -52,6 +52,11 @@ When `--issue <issueId>` is provided:
 Default-mode issue cards (and `--issue` cards) also show the compact "Vulnerable functions:"
 line — see `issues.md` for the format, shared via `printIssueCard`.
 
+Dependency chains (OD-449): `--issue` detail renders the dependency import chains block when
+`issue.dependencyChains` is present (see `issue.md`; no fixed version, so a direct dependency
+shows as a bare `Direct - Update <pkg>`), and issue cards show the compact first-chain line
+(see `issues.md`). `--issue --output json` includes `issue.dependencyChains`.
+
 ## `--diff` mode
 
 When `--diff` is provided, print the git diff annotated with coverage hits/misses and issues.
@@ -120,4 +125,4 @@ Only files with any metric delta change. Columns: file path, issues (+new/-fixed
 
 ## Tests
 
-File: `src/commands/pull-request.test.ts` — 27 tests.
+File: `src/commands/pull-request.test.ts` — 46 tests.

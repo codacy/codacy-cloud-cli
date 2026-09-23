@@ -1,6 +1,6 @@
 # `issue` Command Spec
 
-**Status:** ✅ Done (2026-02-23); ignore/unignore added 2026-03-02; vulnerable functions block added 2026-07-24
+**Status:** ✅ Done (2026-02-23); ignore/unignore added 2026-03-02; vulnerable functions block added 2026-07-24; dependency chains block added 2026-09-22 (OD-449)
 
 ## Purpose
 
@@ -83,6 +83,17 @@ Rendered via `printAdvisoryBlock` in `utils/formatting.ts`, called from `printIs
 category — gated purely on `advisoryInformation` being present, mirroring how the CVE block
 is gated on `cve` for `finding`.
 
+**Dependency import chains block** — shown right after the CVE block whenever `issue.dependencyChains`
+is present (SCA issues), reusing `formatDependencyChainsBlock` from `finding`/`findings` — see
+`SPECS/commands/finding.md` for the format. `CommitIssue` has no `affectedVersion`/`fixedVersion`, so
+there's no version segment to drop, and (from `issue`/`issues` directly, without a fixed version to
+pass in) a direct dependency renders as a bare `Direct - Update <pkg>` with no target version — the
+one case where this differs from `finding`'s SrmItem-backed rendering. Shared via
+`printIssueCodeContext`, so also applies to the `pull-request --issue` detail view, which
+likewise has no fixed version to pass. Only `finding`'s detail view passes its
+`SrmItem.fixedVersion` through (see `SPECS/commands/finding.md`'s "Dependency import chains"
+section), so only there does the block show it.
+
 ## Tests
 
-File: `src/commands/issue.test.ts` — 20 tests (17 + 3 for the vulnerable functions block).
+File: `src/commands/issue.test.ts` — 24 tests (20 + 4 for the dependency chains block).
