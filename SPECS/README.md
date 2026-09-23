@@ -8,7 +8,6 @@ This is the single source of truth for all project tasks and specs.
 
 | Task | Spec | Notes |
 |---|---|---|
-| Tag count on `ImageSummary` | [images.md](commands/images.md) | **Backend**: add a tag count to `listOrganizationImages`' response so `images` can show a Tags column without one extra request per image. Deriving it client-side was deliberately dropped from OD-710's first PR |
 | Resolve the per-image tag budget | [images.md](commands/images.md) | The cap is org-wide and counts image × tag rows; `--keep-latest` is per image, so the safe ceiling is `cap ÷ images`. Four options, none chosen: `_main_/projects/container-tagging-guidance/research/per-image-tag-budget.md`. The CLI warns today; it does not solve it |
 
 ## Command Inventory
@@ -49,6 +48,7 @@ This is the single source of truth for all project tasks and specs.
 
 | Date | What was done |
 |---|---|
+| 2026-09-23 | (OD-748) `images` shows a **Tags** column (per-image `tagCount`) and an `Image tags: X of Y used` line under the header, read from `listOrganizationImages`' new `usage` object (OD-724, API 57.6.4 — `fetch-api` bumped from 57.4.17). Still one request per page. The line turns red at the cap, where new tags are rejected. Exact figures, not `formatCount`. `--output json` stays an array and gains `tagCount` only; `usage` is not in the JSON, since adding it would change the top-level shape The `image --delete --keep-latest` budget warning now reads that same `usage.limit` from the image-count request it already made, in place of the hardcoded `DEFAULT_ORG_TAG_CAP` (1,000), and drops its "this CLI cannot read the value in force" disclaimer Both commands tolerate a response without `usage`/`tagCount` (an API behind the client), and the exact-figure formatter is now shared as `formatExactCount` (5 new tests, 784 total) |
 | 2026-09-22 | (OD-710) **Fix: path parameters are now escaped per segment.** Every `image` subcommand 404'd against a namespaced image name — `codacy/codacy-website`, the shape of all seven images in `gh/codacy` — because the generated client falls back to `encodeURI` when `OpenAPI.ENCODE_PATH` is unset, and `encodeURI` leaves `/` intact by design: it encodes whole URLs, not the segments they are built from. The value expanded into two segments and hit a route that does not exist; verified against the API, where the raw slash returns 404 and `%2F` returns 200. `src/utils/api-path.ts` exports `encodePathSegment` (`encodeURIComponent`) and `src/index.ts` installs it beside `OpenAPI.BASE` — the generated client is untouched, so `npm run update-api` cannot undo it. The encoder is global, which is correct rather than incidental: `{branchName}` and `{filePath}` carry slashes for the same reason, though no shipped command sends either as a path parameter today, so nothing else changes shape. Confirmed end to end against `gh/codacy` after the fix: `images` lists 7, `image codacy/codacy-website` lists 84 tags, `--delete --keep-latest 10 --dry-run` reports 74 of 84 (5 new tests, 767 total) |
 | 2026-02-17 | Project setup: Vitest, `--output json`, `src/index.ts` cleaned up |
 | 2026-02-17 | `info` command + tests (4 tests) |

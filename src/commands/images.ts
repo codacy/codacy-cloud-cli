@@ -13,9 +13,10 @@ import {
   printPaginationWarning,
 } from "../utils/output";
 import { sanitizeText } from "../utils/sanitize";
-import { formatCount } from "../utils/formatting";
+import { formatCount, formatExactCount as exact } from "../utils/formatting";
 import { SbomService } from "../api/client/services/SbomService";
 import type { ImageSummary } from "../api/client/models/ImageSummary";
+import type { ImagesUsage } from "../api/client/models/ImagesUsage";
 
 /** Matches `findings` — the API's own page size, and its ceiling. */
 const MAX_LIMIT = 1000;
@@ -76,8 +77,14 @@ async function fetchImages(
   provider: string,
   organization: string,
   limit: number,
-): Promise<{ images: ImageSummary[]; cursor?: string; total?: number }> {
+): Promise<{
+  images: ImageSummary[];
+  usage?: ImagesUsage;
+  cursor?: string;
+  total?: number;
+}> {
   let images: ImageSummary[] = [];
+  let usage: ImagesUsage | undefined;
   let cursor: string | undefined;
   let total: number | undefined;
 
@@ -89,22 +96,19 @@ async function fetchImages(
       Math.min(limit, PAGE_SIZE),
     );
     images.push(...response.data);
+    usage = response.usage;
     cursor = response.pagination?.cursor;
     total = response.pagination?.total ?? total;
   } while (cursor && images.length < limit);
 
   if (images.length > limit) images = images.slice(0, limit);
 
-  return { images, cursor, total };
+  return { images, usage, cursor, total };
 }
 
 function renderImagesTable(images: ImageSummary[]): string {
-  // No tag count here: `ImageSummary` doesn't carry one, and deriving it
-  // would mean one extra request per image. It is being added server-side
-  // instead — see the pending task in SPECS/README.md. Until then, the
-  // per-image tag count is what `codacy image <image>` shows.
   const table = createTable({
-    head: ["Image", "Latest Tag", "Last Upload", "Last Generated"],
+    head: ["Image", "Tags", "Latest Tag", "Last Upload", "Last Generated"],
   });
 
   for (const image of images) {
@@ -112,6 +116,7 @@ function renderImagesTable(images: ImageSummary[]): string {
     // upload) and reach the terminal — neutralize before styling.
     table.push([
       sanitizeText(image.imageName),
+      image.tagCount === undefined ? ansis.dim("-") : exact(image.tagCount),
       image.latestTag ? sanitizeText(image.latestTag) : ansis.dim("-"),
       image.lastSbomUploaded
         ? formatFriendlyDate(image.lastSbomUploaded)
@@ -137,7 +142,7 @@ async function listImages(
   );
 
   const spinner = ora("Fetching images...").start();
-  const { images, cursor, total } = await fetchImages(
+  const { images, usage, cursor, total } = await fetchImages(
     provider,
     organization,
     limit,
@@ -149,7 +154,7 @@ async function listImages(
     return;
   }
 
-  printImages(provider, organization, images, total);
+  printImages(provider, organization, images, usage, total);
 
   printPaginationWarning(
     cursor ? { cursor, limit: images.length } : undefined,
@@ -161,6 +166,7 @@ function printImages(
   provider: string,
   organization: string,
   images: ImageSummary[],
+  usage: ImagesUsage | undefined,
   total: number | undefined,
 ): void {
   if (images.length === 0) {
@@ -178,6 +184,8 @@ function printImages(
       `\nImages for ${organization} (${provider}) — Found ${formatCount(imageTotal)} ${pluralize("image", imageTotal)}\n`,
     ),
   );
+  // Optional at runtime: an API older than the one this client was built from omits it.
+  if (usage) console.log(formatUsage(usage) + "\n");
   console.log(renderImagesTable(images));
   console.log(
     ansis.dim(
@@ -186,10 +194,18 @@ function printImages(
   );
 }
 
+function formatUsage({ imageTags, limit }: ImagesUsage): string {
+  const line = `Image tags: ${exact(imageTags)} of ${exact(limit)} used`;
+  return imageTags >= limit
+    ? ansis.red(`${line} — new tags will be rejected until some are deleted`)
+    : line;
+}
+
 /** The fields `--output json` promises, and only those. */
 function projectImage(image: ImageSummary) {
   return pickDeep(image, [
     "imageName",
+    "tagCount",
     "latestTag",
     "lastSbomUploaded",
     "lastSbomGenerated",

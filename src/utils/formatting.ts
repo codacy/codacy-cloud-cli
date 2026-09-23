@@ -349,6 +349,14 @@ export function formatCount(n: number): string {
 }
 
 /**
+ * Format a count in full with thousands separators (1000 → "1,000"). For
+ * figures compared against a limit, where `formatCount`'s "1k" hides the gap.
+ */
+export function formatExactCount(n: number): string {
+  return n.toLocaleString("en-US");
+}
+
+/**
  * Color a quality grade letter: A/B green, C yellow, D/E/F red, anything else
  * uncolored. Returns "N/A" when no grade is available. Codacy folder/file
  * grades can be E (not just A–D/F), so it is colored red like D/F.

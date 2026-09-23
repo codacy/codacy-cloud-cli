@@ -10,6 +10,7 @@ import {
   formatDependencyChainsBlock,
   formatGrade,
   formatCountCell,
+  formatExactCount,
   formatCoverageCell,
   formatDelta,
   formatPrCoverage,
@@ -287,6 +288,14 @@ describe("formatGrade", () => {
   it("returns N/A when the grade is missing", () => {
     expect(formatGrade(undefined)).toBe("N/A");
     expect(formatGrade("")).toBe("N/A");
+  });
+});
+
+describe("formatExactCount", () => {
+  it("writes the count in full, never abbreviated", () => {
+    expect(formatExactCount(1000)).toBe("1,000");
+    expect(formatExactCount(2120)).toBe("2,120");
+    expect(formatExactCount(7)).toBe("7");
   });
 });
 

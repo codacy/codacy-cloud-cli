@@ -474,11 +474,12 @@ the parts that constrain future edits:
   the repository-token whitelist, so both call `resolveAccountAuth(this, …)` and
   refuse before any request. Their refusal cases live in the cross-cutting
   `repository-token-refusals.test.ts`, not in their own suites.
-- **`images` must stay one request per page.** The tag count is the number an
-  org at the 1000-tag cap wants, but `ImageSummary` doesn't carry one and
-  deriving it costs an extra request per image. It is being added server-side
-  (pending task in `SPECS/README.md`) — don't reintroduce a client-side fan-out
-  to fake it in the meantime.
+- **`images` must stay one request per page.** Per-image `tagCount` and the
+  org-wide `usage` (tags vs. limit) both come on `listOrganizationImages` —
+  never fan out to `listImageTags` per image. Treat both as optional at runtime
+  even though the client types them required: a CLI released ahead of the API
+  must still list images, just without the usage line and counts. Tag figures
+  go through `formatExactCount` (`utils/formatting.ts`), never `formatCount`.
 - **`--delete` is the action, `--tag` is the scope.** Same split as
   `issues --ignore` and its filters: one verb, narrowed by the same flag that
   narrows the read. `--tag` alone shows that tag; `--delete` alone takes the

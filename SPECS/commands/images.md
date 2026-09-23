@@ -57,15 +57,13 @@ cross-cutting `repository-token-refusals.test.ts`, not per-command suites.
 |---|---|
 | `-n, --limit <n>` | max images to return (default 100, max 1000) |
 
-Columns: Image, Latest Tag, Last Upload, Last Generated. JSON projects the same
-four fields.
+Columns: Image, Tags, Latest Tag, Last Upload, Last Generated. JSON projects
+the same five fields (`tagCount` for Tags).
 
-**No tag count here, deliberately.** It is the number an org at the cap actually
-wants — "which image is holding 85 tags" — but `ImageSummary` doesn't carry one,
-and deriving it client-side costs one extra request per image. It is being added
-to the endpoint server-side instead (pending task in `SPECS/README.md`); when it
-lands it becomes a column with no extra call. Until then the per-image count is
-what `codacy image <image>` shows. Do not reintroduce a fan-out here.
+Above the table: `Image tags: <imageTags> of <limit> used`, from the response's
+`usage` (OD-724), red once usage reaches the limit. Both the per-image
+`tagCount` and `usage` come with the listing itself, so this stays one request
+per page. Do not reintroduce a per-image fan-out to `listImageTags`.
 
 ## `image <provider> <organization> <image>` (alias `img`)
 
@@ -246,12 +244,9 @@ It **warns, it does not refuse**, and it does not pick between the four options
 that file leaves open — that design is unowned, and a CLI warning is the
 smallest thing that honours the rule without pre-empting it.
 
-`DEFAULT_ORG_TAG_CAP` is 1,000 but **the cap is configuration**
-(`sbom.image.max-image-tags-per-org`, `reference.conf:115`; the test default is
-100) and no endpoint exposes the value in force, so the copy says "default" and
-admits the CLI cannot read it. If an endpoint ever returns it, read it instead.
-A `--cap <n>` flag is the obvious escape hatch; not added because nobody asked
-for it.
+The cap is configuration (`sbom.image.max-image-tags-per-org`), so it is read
+from the same response's `usage.limit` (OD-724), never hardcoded. If that lookup
+fails, the warning is skipped rather than guessed.
 
 ## Sanitization
 
