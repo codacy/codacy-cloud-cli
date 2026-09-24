@@ -15,6 +15,7 @@ import {
   printPaginationWarning,
 } from "../utils/output";
 import { confirmAction } from "../utils/prompt";
+import { formatExactCount as exact } from "../utils/formatting";
 import { sanitizeText } from "../utils/sanitize";
 import { formatCount, printSection } from "../utils/formatting";
 import { SbomService } from "../api/client/services/SbomService";
@@ -22,16 +23,6 @@ import type { ImageTagSummary } from "../api/client/models/ImageTagSummary";
 
 const MAX_LIMIT = 1000;
 const PAGE_SIZE = 100;
-
-/**
- * The organization-wide image-tag cap this CLI assumes when warning about
- * `--keep-latest`. It is **configuration, not a constant**
- * (`sbom.image.max-image-tags-per-org`, `reference.conf:115`; the test default
- * is 100) and no API endpoint exposes the value in force, so the warning says
- * "default" rather than stating it as fact. If an endpoint ever returns it,
- * read it instead of this.
- */
-const DEFAULT_ORG_TAG_CAP = 1000;
 
 const ABORT_HINT =
   "Pass --skip-confirmation (-y) to bypass this prompt in CI or scripts.";
@@ -515,7 +506,8 @@ function parseKeepLatest(value: string): number {
 }
 
 /**
- * How many images the organization holds, or `undefined` when the lookup fails.
+ * How many images the organization holds and its tag limit, or `undefined`
+ * when the lookup fails.
  *
  * Only used to qualify `--keep-latest`: the cap is organization-wide and counts
  * image x tag rows, while this flag is per image, so `n` is only safe as
@@ -523,10 +515,10 @@ function parseKeepLatest(value: string): number {
  * more than double it for a 212-image one. One request (`limit: 1`, for
  * `pagination.total`), never a fan-out.
  */
-async function fetchImageCount(
+async function fetchOrgImageBudget(
   provider: string,
   organization: string,
-): Promise<number | undefined> {
+): Promise<{ imageCount?: number; tagLimit?: number } | undefined> {
   try {
     const response = await SbomService.listOrganizationImages(
       provider,
@@ -534,7 +526,10 @@ async function fetchImageCount(
       undefined, // cursor
       1,
     );
-    return response.pagination?.total;
+    return {
+      imageCount: response.pagination?.total,
+      tagLimit: response.usage?.limit,
+    };
   } catch {
     return undefined;
   }
@@ -551,23 +546,19 @@ async function fetchImageCount(
 function orgBudgetWarning(
   keepLatest: number,
   imageCount: number | undefined,
+  tagLimit: number | undefined,
 ): string | undefined {
-  if (imageCount === undefined || imageCount === 0) return undefined;
+  if (!imageCount || tagLimit === undefined) return undefined;
   const projected = keepLatest * imageCount;
-  if (projected <= DEFAULT_ORG_TAG_CAP) return undefined;
+  if (projected <= tagLimit) return undefined;
 
-  const safePerImage = Math.floor(DEFAULT_ORG_TAG_CAP / imageCount);
-  // Exact numbers, not `formatCount`: its abbreviation turns the cap everyone
-  // quotes into "1k" and the projection into "2.1k", which is the wrong
-  // register for the two figures the reader is being asked to compare.
-  const exact = (n: number) => n.toLocaleString("en-US");
+  const safePerImage = Math.floor(tagLimit / imageCount);
   return (
     `Warning: this organization has ${exact(imageCount)} ${pluralize("image", imageCount)}. ` +
     `Keeping ${exact(keepLatest)} tags on each holds ${exact(projected)} image tags, ` +
-    `above the default organization cap of ${exact(DEFAULT_ORG_TAG_CAP)} — past which new tags are ` +
+    `above the organization cap of ${exact(tagLimit)} — past which new tags are ` +
     `rejected and those images stop being scanned. ` +
-    `At this image count the cap allows ${exact(safePerImage)} per image. ` +
-    `(The cap is configurable; this CLI cannot read the value in force.)`
+    `At this image count the cap allows ${exact(safePerImage)} per image.`
   );
 }
 
@@ -604,7 +595,8 @@ async function planKeepLatest(
   // Every page: a tag on page 3 is just as deletable as one on page 1, and a
   // partial view would silently keep tags the user asked to remove.
   const { tags } = await fetchTags(provider, organization, image);
-  const imageCount = await fetchImageCount(provider, organization);
+  const budget = await fetchOrgImageBudget(provider, organization);
+  const imageCount = budget?.imageCount;
   spinner.stop();
 
   // Newest first. `uploadedAt` is when Codacy received the SBOM, which is what
@@ -619,7 +611,7 @@ async function planKeepLatest(
     kept: ordered.slice(0, keepLatest),
     doomed: ordered.slice(keepLatest),
     imageCount,
-    budgetWarning: orgBudgetWarning(keepLatest, imageCount),
+    budgetWarning: orgBudgetWarning(keepLatest, imageCount, budget?.tagLimit),
   };
 }
 

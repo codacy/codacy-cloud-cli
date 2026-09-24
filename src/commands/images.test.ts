@@ -24,12 +24,15 @@ function getAllOutput(): string {
 function mockImage(overrides: Record<string, unknown> = {}) {
   return {
     imageName: "my-service",
+    tagCount: 12,
     latestTag: "1.2.3",
     lastSbomUploaded: "2025-06-14T10:00:00Z",
     lastSbomGenerated: "2025-06-14T09:00:00Z",
     ...overrides,
   };
 }
+
+const usage = { imageTags: 750, limit: 1000 };
 
 describe("images command", () => {
   beforeEach(() => {
@@ -45,6 +48,7 @@ describe("images command", () => {
         mockImage({ imageName: "worker", latestTag: "sha-abc" }),
       ],
       pagination: { total: 2 },
+      usage,
     } as any);
 
     const program = createProgram();
@@ -62,21 +66,54 @@ describe("images command", () => {
     expect(output).toContain("my-service");
     expect(output).toContain("worker");
     expect(output).toContain("1.2.3");
+    expect(output).toContain("Image tags: 750 of 1,000 used");
+    const row = output.split("\n").find((line) => line.includes("my-service"))!;
+    expect(row).toContain("12");
   });
 
-  it("never fans out to the tags endpoint", async () => {
-    // The tag count is being added to `ImageSummary` server-side; this listing
-    // must stay one request. See the pending task in SPECS/README.md.
+  it("flags an organization at the tag cap", async () => {
     vi.mocked(SbomService.listOrganizationImages).mockResolvedValue({
-      data: [mockImage(), mockImage({ imageName: "worker" })],
+      data: [mockImage()],
+      pagination: {},
+      usage: { imageTags: 1000, limit: 1000 },
+    } as any);
+
+    const program = createProgram();
+    await program.parseAsync(["node", "test", "images", "gh", "test-org"]);
+
+    expect(getAllOutput()).toContain(
+      "Image tags: 1,000 of 1,000 used — new tags will be rejected",
+    );
+  });
+
+  it("still lists images when the API omits usage and tag counts", async () => {
+    // A response from an API older than the client this was generated from.
+    vi.mocked(SbomService.listOrganizationImages).mockResolvedValue({
+      data: [mockImage({ tagCount: undefined })],
       pagination: {},
     } as any);
 
     const program = createProgram();
     await program.parseAsync(["node", "test", "images", "gh", "test-org"]);
 
+    const output = getAllOutput();
+    expect(output).toContain("my-service");
+    expect(output).not.toContain("Image tags:");
+    expect(output).not.toContain("undefined");
+  });
+
+  it("never fans out to the tags endpoint", async () => {
+    // The tag count comes from `ImageSummary`; this listing must stay one request.
+    vi.mocked(SbomService.listOrganizationImages).mockResolvedValue({
+      data: [mockImage(), mockImage({ imageName: "worker" })],
+      pagination: {},
+      usage,
+    } as any);
+
+    const program = createProgram();
+    await program.parseAsync(["node", "test", "images", "gh", "test-org"]);
+
     expect(SbomService.listImageTags).not.toHaveBeenCalled();
-    expect(getAllOutput()).not.toContain("Tags");
   });
 
   it("renders a dim dash for missing values", async () => {
@@ -89,6 +126,7 @@ describe("images command", () => {
         }),
       ],
       pagination: {},
+      usage,
     } as any);
 
     const program = createProgram();
@@ -110,10 +148,12 @@ describe("images command", () => {
       .mockResolvedValueOnce({
         data: [mockImage()],
         pagination: { cursor: "next", total: 300 },
+        usage,
       } as any)
       .mockResolvedValueOnce({
         data: [mockImage({ imageName: "worker" })],
         pagination: { cursor: "more", total: 300 },
+        usage,
       } as any);
 
     const program = createProgram();
@@ -146,6 +186,7 @@ describe("images command", () => {
             mockImage({ imageName: `svc-${i}` }),
           ),
           pagination: { cursor: "next", total: 99999 },
+          usage,
         } as any;
       }) as any,
     );
@@ -166,6 +207,7 @@ describe("images command", () => {
     vi.mocked(SbomService.listOrganizationImages).mockResolvedValue({
       data: [],
       pagination: {},
+      usage,
     } as any);
 
     const program = createProgram();
@@ -178,6 +220,7 @@ describe("images command", () => {
     vi.mocked(SbomService.listOrganizationImages).mockResolvedValue({
       data: [mockImage()],
       pagination: {},
+      usage,
     } as any);
 
     const program = createProgram();
@@ -188,6 +231,7 @@ describe("images command", () => {
     expect(JSON.parse(getAllOutput())).toEqual([
       {
         imageName: "my-service",
+        tagCount: 12,
         latestTag: "1.2.3",
         lastSbomUploaded: "2025-06-14T10:00:00Z",
         lastSbomGenerated: "2025-06-14T09:00:00Z",
@@ -204,6 +248,7 @@ describe("images command", () => {
         }),
       ],
       pagination: {},
+      usage,
     } as any);
 
     const program = createProgram();

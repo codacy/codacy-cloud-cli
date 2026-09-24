@@ -575,6 +575,7 @@ describe("image command", () => {
       vi.mocked(SbomService.listOrganizationImages).mockResolvedValue({
         data: [],
         pagination: { total: 7 },
+        usage: { imageTags: 70, limit: 1000 },
       } as any);
       vi.mocked(SbomService.deleteImageTag).mockResolvedValue(undefined as any);
     });
@@ -688,10 +689,12 @@ describe("image command", () => {
       expect(output).toContain("Dry run");
     });
 
-    it("warns when n x the org's image count exceeds the default cap", async () => {
+    it("warns when n x the org's image count exceeds its tag limit", async () => {
+      // Not 1,000, so a hardcoded fallback cap can't pass this.
       vi.mocked(SbomService.listOrganizationImages).mockResolvedValue({
         data: [],
         pagination: { total: 212 },
+        usage: { imageTags: 400, limit: 1500 },
       } as any);
       vi.mocked(SbomService.listImageTags).mockResolvedValue({
         data: tagsUploadedOn([1, 2, 3]),
@@ -708,9 +711,9 @@ describe("image command", () => {
       // Never a constant n without the image count beside it.
       expect(output).toContain("this organization has 212 images");
       expect(output).toContain("holds 2,120 image tags");
-      // Exact figures, not formatCount's "2.1k"/"1k".
-      expect(output).toContain("cap of 1,000");
-      expect(output).toContain("allows 4 per image");
+      // Exact figures, not formatCount's "2.1k"/"1.5k".
+      expect(output).toContain("cap of 1,500");
+      expect(output).toContain("allows 7 per image");
     });
 
     it("stays quiet about the budget when n x images fits the cap", async () => {
@@ -725,7 +728,27 @@ describe("image command", () => {
         "--delete", "--keep-latest", "10", "--dry-run",
       ]);
 
-      expect(getAllOutput()).not.toContain("above the default organization cap");
+      expect(getAllOutput()).not.toContain("above the organization cap");
+    });
+
+    it("skips the budget warning, not the cleanup, when the budget lookup fails", async () => {
+      vi.mocked(SbomService.listOrganizationImages).mockRejectedValue(
+        new Error("boom"),
+      );
+      vi.mocked(SbomService.listImageTags).mockResolvedValue({
+        data: tagsUploadedOn([1, 2, 3]),
+        pagination: {},
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "image", "gh", "test-org", "my-service",
+        "--delete", "--keep-latest", "1", "--dry-run",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).toContain("Dry run");
+      expect(output).not.toContain("organization cap");
     });
 
     it("carries on past a failed delete and exits non-zero", async () => {
@@ -986,6 +1009,30 @@ describe("image command", () => {
         wouldDelete: ["1.0.2", "1.0.1"],
         organizationImageCount: 7,
       });
+    });
+
+    it("keeps the image count when the response has no usage", async () => {
+      // An API older than the client: no `usage`, so no budget warning, but the
+      // image count it does carry must still be reported.
+      vi.mocked(SbomService.listOrganizationImages).mockResolvedValue({
+        data: [],
+        pagination: { total: 7 },
+      } as any);
+      vi.mocked(SbomService.listImageTags).mockResolvedValue({
+        data: tagsUploadedOn([1, 2, 3]),
+        pagination: {},
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "--output", "json",
+        "image", "gh", "test-org", "my-service",
+        "--delete", "--keep-latest", "1", "--dry-run",
+      ]);
+
+      const result = JSON.parse(getAllOutput());
+      expect(result.organizationImageCount).toBe(7);
+      expect(result.warning).toBeUndefined();
     });
 
     it("outputs one JSON document naming the deletions that actually happened", async () => {
