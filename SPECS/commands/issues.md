@@ -1,6 +1,6 @@
 # `issues` Command Spec
 
-**Status:** ✅ Done (2026-02-19); vulnerable functions line added 2026-07-24
+**Status:** ✅ Done (2026-02-19); vulnerable functions line added 2026-07-24; dependency chains line added 2026-09-22 (OD-449)
 
 ## Purpose
 
@@ -62,12 +62,18 @@ Card-style format, sorted by severity (Error > High > Warning > Info):
 {FilePath}:{LineNumber}
 {LineText}
 {Optional: Potential false positive warning}
+{Optional: Transitive - a → b → c ... and N more}
 {Optional: Vulnerable functions: fn1, fn2, fn3 (+N more)}
 
 ────────────────────────────────────────
 ```
 
 Severity colors: Error=red, High=orange, Warning=yellow, Info=blue.
+
+The dependency-chain line is shown when `issue.dependencyChains` is present (SCA issues),
+reusing `formatDependencyChainsLine` from `finding`/`findings` — see `SPECS/commands/findings.md`
+for the format. `--output json` includes the full `dependencyChains` array, no truncation. Not
+shown for ignored issues (`IgnoredIssue` has no `dependencyChains` field).
 
 The "Vulnerable functions" line is shown when `issue.advisoryInformation` is present (SCA
 issues linked to an OSV advisory), listing up to 3 function names with a "(+N more)" suffix
@@ -185,4 +191,4 @@ Cannot be combined with `--overview` or `--limit`.
 
 ## Tests
 
-File: `src/commands/issues.test.ts` — 68 tests (64 + 4 for the vulnerable functions line).
+File: `src/commands/issues.test.ts` — 76 tests (72 + 3 for the dependency chains line, + 1 for the ignored-issue-card safety check).

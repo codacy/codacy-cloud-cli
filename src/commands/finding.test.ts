@@ -298,6 +298,64 @@ describe("finding command", () => {
     );
   });
 
+  it("should not duplicate the dependency chain block when the linked Codacy issue also carries chains", async () => {
+    const chain = [["root-app", "lodash", "vulnerable-pkg"]];
+    vi.mocked(SecurityService.getSecurityItem).mockResolvedValue({
+      data: { ...mockCodacyFinding, dependencyChains: chain, fixedVersion: ["1.2.3"] },
+    } as any);
+    vi.mocked(AnalysisService.getIssue).mockResolvedValue({
+      data: { ...mockQualityIssue, dependencyChains: chain },
+    } as any);
+    vi.mocked(ToolsService.getPattern).mockResolvedValue({
+      data: mockPattern,
+    } as any);
+    vi.mocked(FileService.getFileContent).mockResolvedValue({
+      data: mockFileLines,
+    } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "finding", "gh", "test-org", "def-456-codacy",
+    ]);
+
+    const output = getAllOutput();
+    const occurrences = output.split("Transitive -").length - 1;
+    expect(occurrences).toBe(1);
+    // The single block still carries the fixed version, sourced from the finding item
+    // (CommitIssue itself has no fixedVersion field).
+    expect(output).toContain(
+      "Transitive - root-app → lodash → vulnerable-pkg (Fixed in 1.2.3)",
+    );
+  });
+
+  it("should keep the item-level chain block when the linked Codacy issue has no chains", async () => {
+    vi.mocked(SecurityService.getSecurityItem).mockResolvedValue({
+      data: {
+        ...mockCodacyFinding,
+        dependencyChains: [["root-app", "lodash", "vulnerable-pkg"]],
+        fixedVersion: ["1.2.3"],
+      },
+    } as any);
+    vi.mocked(AnalysisService.getIssue).mockResolvedValue({
+      data: mockQualityIssue,
+    } as any);
+    vi.mocked(ToolsService.getPattern).mockResolvedValue({
+      data: mockPattern,
+    } as any);
+    vi.mocked(FileService.getFileContent).mockResolvedValue({
+      data: mockFileLines,
+    } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "finding", "gh", "test-org", "def-456-codacy",
+    ]);
+
+    expect(getAllOutput()).toContain(
+      "Transitive - root-app → lodash → vulnerable-pkg (Fixed in 1.2.3)",
+    );
+  });
+
   it("should show pattern info for Codacy-source findings", async () => {
     vi.mocked(SecurityService.getSecurityItem).mockResolvedValue({
       data: mockCodacyFinding,

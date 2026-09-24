@@ -265,6 +265,15 @@ export function printIssueCard(
     console.log(ansis.yellow(`Potential false positive: ${reason}`));
   }
 
+  // Dependency import chain (SCA issues with dependencyChains)
+  if (issue.dependencyChains?.length) {
+    const chainLine = formatDependencyChainsLine(issue.dependencyChains);
+    if (chainLine) {
+      console.log();
+      console.log(ansis.dim(chainLine));
+    }
+  }
+
   // Vulnerable functions (SCA issues with an OSV-linked advisory), compact form
   if (issue.advisoryInformation?.vulnerableFunctions?.length) {
     console.log();
@@ -910,12 +919,15 @@ export function printFileContext(
  * and pattern documentation.
  * Extracted so it can be reused by both the `issue` command and Codacy-source `finding` details.
  * When `cveData` is provided it is injected between the code block and the pattern docs.
+ * `dependencyChainsFixedVersion` lets `finding` pass the linked SrmItem's `fixedVersion`
+ * (CommitIssue itself carries no fixed-version field) so the merged chain block still shows it.
  */
 export function printIssueCodeContext(
   issue: CommitIssue,
   pattern: Pattern | null,
   lines: CodeBlockLine[] | null,
   cveData?: CveRecord | null,
+  dependencyChainsFixedVersion?: string[],
 ): void {
   console.log();
 
@@ -948,6 +960,18 @@ export function printIssueCodeContext(
   // CVE enrichment — injected between code context and pattern docs
   if (cveData) {
     printCveBlock(cveData);
+  }
+
+  // Dependency import chains (SCA issues with dependencyChains)
+  if (issue.dependencyChains?.length) {
+    const chainBlock = formatDependencyChainsBlock(
+      issue.dependencyChains,
+      dependencyChainsFixedVersion,
+    );
+    if (chainBlock) {
+      console.log();
+      console.log(ansis.dim(chainBlock));
+    }
   }
 
   // Advisory enrichment — vulnerable functions for SCA issues with an OSV-linked advisory

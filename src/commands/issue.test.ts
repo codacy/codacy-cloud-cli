@@ -375,6 +375,62 @@ describe("issue command", () => {
     });
   });
 
+  describe("dependency chains (SCA)", () => {
+    it("should show dependency chain block when dependencyChains is present", async () => {
+      vi.mocked(AnalysisService.getIssue).mockResolvedValue({
+        data: { ...mockIssue, dependencyChains: [["root-app", "lodash", "vulnerable-pkg"]] },
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issue", "gh", "test-org", "test-repo", "42",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).toContain("Transitive - root-app → lodash → vulnerable-pkg");
+    });
+
+    it("should show a direct dependency as 'Update <pkg>' with no target version (CommitIssue has no fixedVersion)", async () => {
+      vi.mocked(AnalysisService.getIssue).mockResolvedValue({
+        data: { ...mockIssue, dependencyChains: [["vulnerable-pkg"]] },
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issue", "gh", "test-org", "test-repo", "42",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).toContain("Direct - Update vulnerable-pkg");
+    });
+
+    it("should not show dependency chain block when dependencyChains is absent", async () => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issue", "gh", "test-org", "test-repo", "42",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).not.toContain("Transitive -");
+      expect(output).not.toContain("Direct -");
+    });
+
+    it("should include dependencyChains in JSON output", async () => {
+      vi.mocked(AnalysisService.getIssue).mockResolvedValue({
+        data: { ...mockIssue, dependencyChains: [["root-app", "lodash", "vulnerable-pkg"]] },
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "--output", "json", "issue", "gh", "test-org", "test-repo", "42",
+      ]);
+
+      expect(console.log).toHaveBeenCalledWith(
+        expect.stringContaining('"dependencyChains"'),
+      );
+    });
+  });
+
   describe("--ignore option", () => {
     beforeEach(() => {
       vi.mocked(AnalysisService.updateIssueState).mockResolvedValue(

@@ -942,6 +942,7 @@ Examples:
                   "advisoryInformation.advisoryId",
                   "advisoryInformation.vulnerableFunctions",
                   "advisoryInformation.publishedAt",
+                  "dependencyChains",
                 ]),
               ),
             });

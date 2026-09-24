@@ -96,8 +96,10 @@ function printFindingDetail(
 
   console.log(line2Parts.join(pipe));
 
-  // Dependency import chains (SCA findings with dependencyChains)
-  if (hasChains) {
+  // Dependency import chains (SCA findings with dependencyChains): skipped when the linked
+  // Codacy issue carries its own chains — printIssueCodeContext renders those instead
+  // (passed item.fixedVersion, since CommitIssue has no fixed-version field).
+  if (hasChains && !issue?.dependencyChains?.length) {
     const chainBlock = formatDependencyChainsBlock(
       item.dependencyChains,
       item.fixedVersion,
@@ -150,7 +152,7 @@ function printFindingDetail(
   // Codacy source: show linked quality issue context + pattern info.
   // cveData is passed through so it can be injected between code context and pattern docs.
   if (issue) {
-    printIssueCodeContext(issue, pattern, lines, cveData);
+    printIssueCodeContext(issue, pattern, lines, cveData, item.fixedVersion);
   }
 }
 
@@ -296,6 +298,7 @@ Examples:
             "issue.suggestion",
             "issue.resultDataId",
             "issue.toolInfo.name",
+            "issue.dependencyChains",
             // Pattern
             "pattern.id",
             "pattern.title",
