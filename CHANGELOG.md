@@ -1,5 +1,13 @@
 # @codacy/codacy-cloud-cli
 
+## 1.13.0
+
+### Minor Changes
+
+- [#58](https://github.com/codacy/codacy-cloud-cli/pull/58) [`a06a95b`](https://github.com/codacy/codacy-cloud-cli/commit/a06a95b008faa70f87920fec09c06de5d687c8d2) Thanks [@pedrobpereira](https://github.com/pedrobpereira)! - `images` now shows how many tags each image holds, and the organization's image tag usage against its limit. `--output json` includes `tagCount` per image. The `image --delete --keep-latest` warning now uses the organization's actual tag limit instead of assuming 1,000.
+
+- [#57](https://github.com/codacy/codacy-cloud-cli/pull/57) [`891564b`](https://github.com/codacy/codacy-cloud-cli/commit/891564b5b45359499efc292f33f890a2325908af) Thanks [@pedrobpereira](https://github.com/pedrobpereira)! - Show dependency import chains on `codacy issue`/`codacy issues` for SCA issues, matching what `codacy finding`/`codacy findings` already show. `--output json` gains `dependencyChains` on the issue payload.
+
 ## 1.12.1
 
 ### Patch Changes
