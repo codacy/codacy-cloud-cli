@@ -1743,6 +1743,46 @@ describe("issues command", () => {
       expect(output).toContain("Transitive - root-app → lodash → vulnerable-pkg");
     });
 
+    it("should show the fixed version on the card when present", async () => {
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: [
+          {
+            ...mockIssues[0],
+            dependencyChains: [["root-app", "lodash", "vulnerable-pkg"]],
+            fixedVersion: ["1.0.1"],
+          },
+        ],
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "issues", "gh", "test-org", "test-repo"]);
+
+      expect(getAllOutput()).toContain(
+        "Transitive - root-app → lodash → vulnerable-pkg (Fixed in 1.0.1)",
+      );
+    });
+
+    it("should include fixedVersion in JSON output", async () => {
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: [
+          {
+            ...mockIssues[0],
+            dependencyChains: [["vulnerable-pkg"]],
+            fixedVersion: ["1.0.1"],
+          },
+        ],
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "--output", "json", "issues", "gh", "test-org", "test-repo",
+      ]);
+
+      expect(console.log).toHaveBeenCalledWith(
+        expect.stringContaining('"fixedVersion"'),
+      );
+    });
+
     it("should not show a dependency chain line when absent", async () => {
       vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
         data: mockIssues,

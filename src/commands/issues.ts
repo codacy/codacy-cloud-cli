@@ -943,6 +943,7 @@ Examples:
                   "advisoryInformation.vulnerableFunctions",
                   "advisoryInformation.publishedAt",
                   "dependencyChains",
+                  "fixedVersion",
                 ]),
               ),
             });

@@ -132,6 +132,7 @@ Examples:
             "issue.advisoryInformation.vulnerableFunctions",
             "issue.advisoryInformation.publishedAt",
             "issue.dependencyChains",
+            "issue.fixedVersion",
             // Pattern
             "pattern.id",
             "pattern.title",

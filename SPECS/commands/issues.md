@@ -72,8 +72,10 @@ Severity colors: Error=red, High=orange, Warning=yellow, Info=blue.
 
 The dependency-chain line is shown when `issue.dependencyChains` is present (SCA issues),
 reusing `formatDependencyChainsLine` from `finding`/`findings` — see `SPECS/commands/findings.md`
-for the format. `--output json` includes the full `dependencyChains` array, no truncation. Not
-shown for ignored issues (`IgnoredIssue` has no `dependencyChains` field).
+for the format, passing `issue.fixedVersion` so the line carries the target version
+(`Direct - Update <pkg> to <version>` / `(Fixed in <version>)`). `--output json` includes the full
+`dependencyChains` array, no truncation, plus `fixedVersion`. Not shown for ignored issues
+(`IgnoredIssue` has no `dependencyChains` or `fixedVersion` field).
 
 The "Vulnerable functions" line is shown when `issue.advisoryInformation` is present (SCA
 issues linked to an OSV advisory), listing up to 3 function names with a "(+N more)" suffix

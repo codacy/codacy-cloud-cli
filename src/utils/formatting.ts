@@ -267,7 +267,10 @@ export function printIssueCard(
 
   // Dependency import chain (SCA issues with dependencyChains)
   if (issue.dependencyChains?.length) {
-    const chainLine = formatDependencyChainsLine(issue.dependencyChains);
+    const chainLine = formatDependencyChainsLine(
+      issue.dependencyChains,
+      issue.fixedVersion,
+    );
     if (chainLine) {
       console.log();
       console.log(ansis.dim(chainLine));
@@ -927,8 +930,8 @@ export function printFileContext(
  * and pattern documentation.
  * Extracted so it can be reused by both the `issue` command and Codacy-source `finding` details.
  * When `cveData` is provided it is injected between the code block and the pattern docs.
- * `dependencyChainsFixedVersion` lets `finding` pass the linked SrmItem's `fixedVersion`
- * (CommitIssue itself carries no fixed-version field) so the merged chain block still shows it.
+ * `dependencyChainsFixedVersion` lets `finding` pass the linked SrmItem's `fixedVersion`;
+ * it takes precedence over `issue.fixedVersion`, which the chain block falls back to.
  */
 export function printIssueCodeContext(
   issue: CommitIssue,
@@ -974,7 +977,9 @@ export function printIssueCodeContext(
   if (issue.dependencyChains?.length) {
     const chainBlock = formatDependencyChainsBlock(
       issue.dependencyChains,
-      dependencyChainsFixedVersion,
+      dependencyChainsFixedVersion?.length
+        ? dependencyChainsFixedVersion
+        : issue.fixedVersion,
     );
     if (chainBlock) {
       console.log();

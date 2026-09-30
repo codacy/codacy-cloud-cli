@@ -390,7 +390,7 @@ describe("issue command", () => {
       expect(output).toContain("Transitive - root-app → lodash → vulnerable-pkg");
     });
 
-    it("should show a direct dependency as 'Update <pkg>' with no target version (CommitIssue has no fixedVersion)", async () => {
+    it("should show a direct dependency as 'Update <pkg>' with no target version when fixedVersion is absent", async () => {
       vi.mocked(AnalysisService.getIssue).mockResolvedValue({
         data: { ...mockIssue, dependencyChains: [["vulnerable-pkg"]] },
       } as any);
@@ -402,6 +402,68 @@ describe("issue command", () => {
 
       const output = getAllOutput();
       expect(output).toContain("Direct - Update vulnerable-pkg");
+    });
+
+    it("should show the fixed version on a direct dependency", async () => {
+      vi.mocked(AnalysisService.getIssue).mockResolvedValue({
+        data: { ...mockIssue, dependencyChains: [["vulnerable-pkg"]], fixedVersion: ["1.0.1", "2.0.0"] },
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issue", "gh", "test-org", "test-repo", "42",
+      ]);
+
+      expect(getAllOutput()).toContain("Direct - Update vulnerable-pkg to 1.0.1, 2.0.0");
+    });
+
+    it("should show the fixed version on a transitive dependency", async () => {
+      vi.mocked(AnalysisService.getIssue).mockResolvedValue({
+        data: {
+          ...mockIssue,
+          dependencyChains: [["root-app", "lodash", "vulnerable-pkg"]],
+          fixedVersion: ["1.0.1"],
+        },
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issue", "gh", "test-org", "test-repo", "42",
+      ]);
+
+      expect(getAllOutput()).toContain(
+        "Transitive - root-app → lodash → vulnerable-pkg (Fixed in 1.0.1)",
+      );
+    });
+
+    it("should not show a fixed version when fixedVersion is empty (no fix available)", async () => {
+      vi.mocked(AnalysisService.getIssue).mockResolvedValue({
+        data: { ...mockIssue, dependencyChains: [["vulnerable-pkg"]], fixedVersion: [] },
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issue", "gh", "test-org", "test-repo", "42",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).toContain("Direct - Update vulnerable-pkg");
+      expect(output).not.toContain("Update vulnerable-pkg to");
+    });
+
+    it("should include fixedVersion in JSON output", async () => {
+      vi.mocked(AnalysisService.getIssue).mockResolvedValue({
+        data: { ...mockIssue, dependencyChains: [["vulnerable-pkg"]], fixedVersion: ["1.0.1"] },
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "--output", "json", "issue", "gh", "test-org", "test-repo", "42",
+      ]);
+
+      expect(console.log).toHaveBeenCalledWith(
+        expect.stringContaining('"fixedVersion"'),
+      );
     });
 
     it("should not show dependency chain block when dependencyChains is absent", async () => {
