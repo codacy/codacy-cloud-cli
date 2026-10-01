@@ -1,5 +1,11 @@
 # @codacy/codacy-cloud-cli
 
+## 1.14.0
+
+### Minor Changes
+
+- [#60](https://github.com/codacy/codacy-cloud-cli/pull/60) [`a77c4a7`](https://github.com/codacy/codacy-cloud-cli/commit/a77c4a75d8679f6ce95458364fc14ecb28083d3c) Thanks [@claudiacodacy](https://github.com/claudiacodacy)! - Show the fixed version on SCA issues in `codacy issue`, `codacy issues` and `codacy pull-request --issue`: a direct dependency now reads `Direct - Update <pkg> to <version>` and a transitive one ends with `(Fixed in <version>)`, matching `codacy finding`/`codacy findings`. `--output json` gains `fixedVersion` on the issue payload.
+
 ## 1.13.0
 
 ### Minor Changes
