@@ -85,15 +85,16 @@ is gated on `cve` for `finding`.
 
 **Dependency import chains block** — shown right after the CVE block whenever `issue.dependencyChains`
 is present (SCA issues), reusing `formatDependencyChainsBlock` from `finding`/`findings` — see
-`SPECS/commands/finding.md` for the format. `CommitIssue` has no `affectedVersion`/`fixedVersion`, so
-there's no version segment to drop, and (from `issue`/`issues` directly, without a fixed version to
-pass in) a direct dependency renders as a bare `Direct - Update <pkg>` with no target version — the
-one case where this differs from `finding`'s SrmItem-backed rendering. Shared via
-`printIssueCodeContext`, so also applies to the `pull-request --issue` detail view, which
-likewise has no fixed version to pass. Only `finding`'s detail view passes its
-`SrmItem.fixedVersion` through (see `SPECS/commands/finding.md`'s "Dependency import chains"
-section), so only there does the block show it.
+`SPECS/commands/finding.md` for the format. `CommitIssue` has no `affectedVersion`, so there's no
+version segment to drop. It carries `fixedVersion` (`string[]`, API 57.7.9+; empty when no fix is
+available), which the block uses: a direct dependency renders `Direct - Update <pkg> to <version>`
+and a transitive one ends `(Fixed in <version>)`. With an empty or absent `fixedVersion` a direct
+dependency renders as a bare `Direct - Update <pkg>`. Shared via `printIssueCodeContext`, so also
+applies to the `pull-request --issue` detail view. `finding`'s detail view passes its
+`SrmItem.fixedVersion` through as an override (see `SPECS/commands/finding.md`'s "Dependency
+import chains" section); when it passes none, the issue's own `fixedVersion` is used.
+`--output json` includes `issue.fixedVersion`.
 
 ## Tests
 
-File: `src/commands/issue.test.ts` — 24 tests (20 + 4 for the dependency chains block).
+File: `src/commands/issue.test.ts` — 28 tests (20 + 8 for the dependency chains block).

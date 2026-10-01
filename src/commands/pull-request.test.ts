@@ -1129,6 +1129,80 @@ describe("pull-request command", () => {
         expect.stringContaining('"dependencyChains"'),
       );
     });
+
+    it("should show the fixed version in the --issue <id> dependency chain block", async () => {
+      vi.mocked(AnalysisService.listPullRequestIssues)
+        .mockResolvedValueOnce({
+          data: [
+            {
+              ...mockNewIssues.data[2],
+              commitIssue: {
+                ...mockNewIssues.data[2].commitIssue,
+                dependencyChains: [["root-app", "lodash", "vulnerable-pkg"]],
+                fixedVersion: ["1.0.1"],
+              },
+            },
+          ],
+          pagination: undefined,
+        } as any)
+        .mockResolvedValueOnce({
+          data: mockPotentialIssues.data,
+          pagination: undefined,
+        } as any);
+      vi.mocked(ToolsService.getPattern).mockResolvedValue({
+        data: mockPattern,
+      } as any);
+      vi.mocked(FileService.getFileContent).mockResolvedValue({
+        data: mockFileLines,
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "pull-request", "gh", "test-org", "test-repo", "42",
+        "--issue", "3",
+      ]);
+
+      expect(getAllOutput()).toContain(
+        "Transitive - root-app → lodash → vulnerable-pkg (Fixed in 1.0.1)",
+      );
+    });
+
+    it("should include fixedVersion in --issue JSON output", async () => {
+      vi.mocked(AnalysisService.listPullRequestIssues)
+        .mockResolvedValueOnce({
+          data: [
+            {
+              ...mockNewIssues.data[2],
+              commitIssue: {
+                ...mockNewIssues.data[2].commitIssue,
+                dependencyChains: [["root-app", "lodash", "vulnerable-pkg"]],
+                fixedVersion: ["1.0.1"],
+              },
+            },
+          ],
+          pagination: undefined,
+        } as any)
+        .mockResolvedValueOnce({
+          data: mockPotentialIssues.data,
+          pagination: undefined,
+        } as any);
+      vi.mocked(ToolsService.getPattern).mockResolvedValue({
+        data: mockPattern,
+      } as any);
+      vi.mocked(FileService.getFileContent).mockResolvedValue({
+        data: mockFileLines,
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "--output", "json", "pull-request", "gh", "test-org", "test-repo", "42",
+        "--issue", "3",
+      ]);
+
+      expect(console.log).toHaveBeenCalledWith(
+        expect.stringContaining('"fixedVersion"'),
+      );
+    });
   });
 
   // ─── Diff Coverage Summary ─────────────────────────────────────────────

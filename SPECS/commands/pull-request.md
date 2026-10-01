@@ -53,9 +53,9 @@ Default-mode issue cards (and `--issue` cards) also show the compact "Vulnerable
 line — see `issues.md` for the format, shared via `printIssueCard`.
 
 Dependency chains (OD-449): `--issue` detail renders the dependency import chains block when
-`issue.dependencyChains` is present (see `issue.md`; no fixed version, so a direct dependency
-shows as a bare `Direct - Update <pkg>`), and issue cards show the compact first-chain line
-(see `issues.md`). `--issue --output json` includes `issue.dependencyChains`.
+`issue.dependencyChains` is present (see `issue.md`; the block carries `issue.fixedVersion` when
+the API sends one), and issue cards show the compact first-chain line (see `issues.md`).
+`--issue --output json` includes `issue.dependencyChains` and `issue.fixedVersion`.
 
 ## `--diff` mode
 
