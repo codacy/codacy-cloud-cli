@@ -25,6 +25,8 @@ import {
 export const POLL_INTERVAL_MS = 10_000;
 /** Give up after 20 minutes. */
 export const MAX_WAIT_MS = 20 * 60_000;
+/** Non-TTY progress line cadence: ora's spinner text never reaches a piped stderr. */
+export const PROGRESS_INTERVAL_MS = 60_000;
 /** Maximum number of per-pattern rows printed before collapsing into "… (N more)". */
 export const PATTERN_LIMIT = 20;
 
@@ -244,6 +246,8 @@ export interface PollOptions {
   maxWaitMs?: number;
   /** Injectable clock for tests. Defaults to Date.now. */
   now?: () => number;
+  /** Injectable for tests. Defaults to whether stderr is a TTY. */
+  isTTY?: boolean;
 }
 
 export interface PollResult {
@@ -299,12 +303,24 @@ export async function pollForAnalysis(
   const pollMs = opts.pollMs ?? POLL_INTERVAL_MS;
   const maxWaitMs = opts.maxWaitMs ?? MAX_WAIT_MS;
   const now = opts.now ?? (() => Date.now());
+  const isTTY = opts.isTTY ?? process.stderr.isTTY;
   const { spinner, triggeredAt } = opts;
   const startedAt = now();
   const timedOut = () => now() - startedAt > maxWaitMs;
 
   const inProgress = (s: AnalysisStatus) => isAnalysisInProgress(s, triggeredAt);
   const done = (s: AnalysisStatus) => isAnalysisDone(s, triggeredAt);
+
+  // ora's spinner text never reaches a piped stderr, so print plain lines instead.
+  let phase: "waiting" | "inProgress" = "waiting";
+  let nextProgressAtMs = PROGRESS_INTERVAL_MS;
+  const maybeLogProgress = () => {
+    if (isTTY) return;
+    while (now() - startedAt >= nextProgressAtMs) {
+      process.stderr.write(`elapsed ${nextProgressAtMs / 60_000}m, status=${phase}\n`);
+      nextProgressAtMs += PROGRESS_INTERVAL_MS;
+    }
+  };
 
   spinner.text = "Analysis requested. Waiting for it to start...";
   let status = await getStatus();
@@ -314,15 +330,18 @@ export async function pollForAnalysis(
     if (timedOut()) return { status, timedOut: true };
     await timers.sleep(pollMs);
     status = await getStatus();
+    maybeLogProgress();
   }
 
   // Phase B — analysis is running; wait for it to finish.
   if (!done(status)) {
     spinner.text = "Analysis in progress. This may take a few minutes...";
+    phase = "inProgress";
     while (!done(status)) {
       if (timedOut()) return { status, timedOut: true };
       await timers.sleep(pollMs);
       status = await getStatus();
+      maybeLogProgress();
     }
   }
 
