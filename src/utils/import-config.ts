@@ -371,6 +371,24 @@ function buildConfigurePatterns(
   }));
 }
 
+/** Outcome of `executeImport`. */
+export interface ImportResult {
+  succeeded: string[];
+  failed: ImportFailure[];
+  /**
+   * Changes made beyond the preview the user confirmed, because unlinking the
+   * coding standards enabled tools the preview could not see. Empty unless
+   * `--force` unlinked at least one standard. The caller must print them: they
+   * are the only part of the import the user did not approve explicitly.
+   */
+  afterUnlink: {
+    /** Locally supported tools the unlink enabled, which the import disabled. */
+    disabled: string[];
+    /** Cloud-only tools the unlink enabled; left on, as the preview would have. */
+    leftEnabled: string[];
+  };
+}
+
 export async function executeImport(
   provider: string,
   organization: string,
@@ -380,9 +398,10 @@ export async function executeImport(
   allTools: Tool[],
   spinner: ReturnType<typeof ora>,
   force: boolean = false,
-): Promise<{ succeeded: string[]; failed: ImportFailure[] }> {
+): Promise<ImportResult> {
   const succeeded: string[] = [];
   const failed: ImportFailure[] = [];
+  const afterUnlink: ImportResult["afterUnlink"] = { disabled: [], leftEnabled: [] };
 
   // Unlink coding standards when --force is used
   let unlinkedStandards = 0;
@@ -422,13 +441,19 @@ export async function executeImport(
         repository,
       );
       const planned = new Set(toolsToDisable.map((t) => t.uuid));
-      const extra = splitEnabledNotInConfig(
+      const known = new Set(preview.cloudOnlyTools.map((t) => t.uuid));
+      const now = splitEnabledNotInConfig(
         config,
         response.data,
         allTools,
         preview.localToolIds,
-      ).toolsToDisable.filter((t) => !planned.has(t.uuid));
+      );
+      const extra = now.toolsToDisable.filter((t) => !planned.has(t.uuid));
       toolsToDisable = [...toolsToDisable, ...extra];
+      afterUnlink.disabled = extra.map((t) => t.name);
+      afterUnlink.leftEnabled = now.cloudOnlyTools
+        .filter((t) => !known.has(t.uuid))
+        .map((t) => t.name);
     } catch (err) {
       // Not fatal: the import itself can still be applied. Report it, since a
       // tool the unlink enabled may now be left on.
@@ -520,5 +545,11 @@ export async function executeImport(
     }
   }
 
-  return { succeeded, failed };
+  // Report only the disables that went through; a failed one is already in
+  // the failure table.
+  afterUnlink.disabled = afterUnlink.disabled.filter((name) =>
+    succeeded.includes(`${name} (disabled)`),
+  );
+
+  return { succeeded, failed, afterUnlink };
 }

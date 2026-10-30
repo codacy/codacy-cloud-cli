@@ -570,6 +570,31 @@ describe("executeImport", () => {
       expect(disabled).toEqual(["uuid-pylint", "uuid-eslint"]);
       expect(result.succeeded).toContain("ESLint (disabled)");
       expect(result.failed).toHaveLength(0);
+      // Only what the unlink changed, beyond the confirmed preview (Pylint was in it).
+      expect(result.afterUnlink).toEqual({ disabled: ["ESLint"], leftEnabled: ["Remarklint"] });
+    });
+
+    it("does not report a post-unlink disable that failed as disabled", async () => {
+      const preview = buildImportPreview(config, [], allTools, standards, "/test/path", localToolIds);
+      vi.mocked(AnalysisService.listRepositoryTools).mockResolvedValue({
+        data: [makeRepoTool("uuid-eslint", "ESLint", true)],
+      } as any);
+      vi.mocked(AnalysisService.configureTool).mockImplementation(
+        (async (_p: string, _o: string, _r: string, uuid: string, body: { enabled?: boolean }) => {
+          if (uuid === "uuid-eslint" && body.enabled === false) throw new Error("boom");
+          return undefined as any;
+        }) as any,
+      );
+
+      const result = await executeImport(
+        "gh", "test-org", "test-repo",
+        preview, config, allTools,
+        mockSpinner as any,
+        true,
+      );
+
+      expect(result.afterUnlink.disabled).toEqual([]);
+      expect(result.failed.map((f) => f.tool)).toEqual(["ESLint"]);
     });
 
     it("does not re-read the tools when no standard was unlinked", async () => {
