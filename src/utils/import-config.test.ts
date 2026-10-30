@@ -509,6 +509,120 @@ describe("executeImport", () => {
     expect(CodingStandardsService.applyCodingStandardToRepositories).not.toHaveBeenCalled();
   });
 
+  describe("after unlinking coding standards", () => {
+    // The config keeps Checkov; the standard governed the tools the preview saw.
+    const config: CodacyConfig = {
+      version: 1,
+      metadata: {
+        repositoryId: null,
+        repositoryName: null,
+        createdAt: "2025-01-01",
+        updatedAt: "2025-01-01",
+        languages: [],
+      },
+      tools: [{ toolId: "checkov", patterns: [{ patternId: "CKV_1" }] }],
+    };
+    const standards = [{ id: 100, name: "Our Default" }];
+    const localToolIds = ["ESLint", "checkov", "Pylint"];
+
+    beforeEach(() => {
+      vi.mocked(AnalysisService.updateRepositoryToolPatterns).mockResolvedValue(undefined as any);
+      vi.mocked(AnalysisService.configureTool).mockResolvedValue(undefined as any);
+      vi.mocked(CodingStandardsService.applyCodingStandardToRepositories).mockResolvedValue({} as any);
+    });
+
+    it("disables a locally supported tool the unlink enabled, which the preview never saw", async () => {
+      // Before the unlink: only Checkov (from the standard) and Pylint (not in config).
+      const preview = buildImportPreview(
+        config,
+        [makeRepoTool("uuid-checkov", "Checkov", true), makeRepoTool("uuid-pylint", "Pylint", true)],
+        allTools,
+        standards,
+        "/test/path",
+        localToolIds,
+      );
+      expect(preview.toolsToDisable.map((t) => t.name)).toEqual(["Pylint"]);
+
+      // After the unlink Codacy's defaults switch ESLint on, and Remarklint (cloud-only here).
+      vi.mocked(AnalysisService.listRepositoryTools).mockResolvedValue({
+        data: [
+          makeRepoTool("uuid-checkov", "Checkov", true),
+          makeRepoTool("uuid-pylint", "Pylint", true),
+          makeRepoTool("uuid-eslint", "ESLint", true),
+          makeRepoTool("uuid-remarklint", "Remarklint", true),
+        ],
+      } as any);
+
+      const result = await executeImport(
+        "gh", "test-org", "test-repo",
+        preview, config, allTools,
+        mockSpinner as any,
+        true,
+      );
+
+      expect(AnalysisService.listRepositoryTools).toHaveBeenCalledWith("gh", "test-org", "test-repo");
+      const disabled = vi
+        .mocked(AnalysisService.configureTool)
+        .mock.calls.filter(([, , , , body]) => body.enabled === false)
+        .map(([, , , uuid]) => uuid);
+      // Pylint once (no duplicate), ESLint added; Checkov is in the config and
+      // Remarklint is not supported locally, so both are left alone.
+      expect(disabled).toEqual(["uuid-pylint", "uuid-eslint"]);
+      expect(result.succeeded).toContain("ESLint (disabled)");
+      expect(result.failed).toHaveLength(0);
+    });
+
+    it("does not re-read the tools when no standard was unlinked", async () => {
+      vi.mocked(CodingStandardsService.applyCodingStandardToRepositories).mockRejectedValue(
+        new Error("forbidden"),
+      );
+      const preview = buildImportPreview(config, [], allTools, standards, "/test/path", localToolIds);
+
+      const result = await executeImport(
+        "gh", "test-org", "test-repo",
+        preview, config, allTools,
+        mockSpinner as any,
+        true,
+      );
+
+      expect(AnalysisService.listRepositoryTools).not.toHaveBeenCalled();
+      expect(result.failed.map((f) => f.tool)).toEqual(["Standard: Our Default"]);
+    });
+
+    it("does not re-read the tools without local CLI information, since it would disable nothing", async () => {
+      const preview = buildImportPreview(config, [], allTools, standards, "/test/path", null);
+
+      await executeImport(
+        "gh", "test-org", "test-repo",
+        preview, config, allTools,
+        mockSpinner as any,
+        true,
+      );
+
+      expect(AnalysisService.listRepositoryTools).not.toHaveBeenCalled();
+    });
+
+    it("reports a failed re-read and still applies the import", async () => {
+      vi.mocked(AnalysisService.listRepositoryTools).mockRejectedValue(new Error("network down"));
+      const preview = buildImportPreview(config, [], allTools, standards, "/test/path", localToolIds);
+
+      const result = await executeImport(
+        "gh", "test-org", "test-repo",
+        preview, config, allTools,
+        mockSpinner as any,
+        true,
+      );
+
+      expect(result.succeeded).toContain("Checkov");
+      expect(result.failed).toEqual([
+        expect.objectContaining({
+          tool: "Re-reading repository tools after unlinking standards",
+          error: "network down",
+        }),
+      ]);
+    });
+  });
+
   it("should continue on error and report failures", async () => {
     vi.mocked(AnalysisService.updateRepositoryToolPatterns).mockResolvedValue(undefined as any);
     vi.mocked(AnalysisService.configureTool)
