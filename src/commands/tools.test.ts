@@ -323,6 +323,73 @@ describe("tools command", () => {
       expect(output).toContain("imported successfully");
     });
 
+    it("prints the tools that unlinking coding standards changed beyond the preview", async () => {
+      const pylint = {
+        uuid: "uuid-pylint",
+        name: "Pylint",
+        shortName: "pylint",
+        prefix: "Pylint_",
+        version: "1.0",
+        needsCompilation: false,
+        configurationFilenames: [],
+        dockerImage: "docker/pylint",
+        languages: ["Python"],
+        clientSide: false,
+        standalone: false,
+        enabledByDefault: true,
+        configurable: true,
+      };
+      const allTools = await importConfig.fetchAllTools();
+      vi.spyOn(importConfig, "fetchAllTools").mockResolvedValue([...allTools, pylint] as any);
+      vi.spyOn(importConfig, "getLocalSupportedToolIds").mockResolvedValue(["ESLint", "Pylint"]);
+      vi.mocked(CodingStandardsService.applyCodingStandardToRepositories).mockResolvedValue({} as any);
+      vi.mocked(AnalysisService.getRepositoryWithAnalysis).mockResolvedValue({
+        data: {
+          repository: {
+            provider: "gh",
+            owner: "test-org",
+            name: "test-repo",
+            standards: [{ id: 100, name: "Our Default" }],
+            languages: [],
+            problems: [],
+          },
+        },
+      } as any);
+      // Unlinking the standard hands the tools to Codacy's defaults, which turn
+      // on Pylint (supported locally) and SonarCSharp (cloud-only).
+      const enabledByDefault = (uuid: string, name: string) => ({
+        uuid,
+        name,
+        isClientSide: false,
+        settings: { ...mockTools[0].settings, enabledBy: [] },
+      });
+      vi.mocked(AnalysisService.listRepositoryTools)
+        .mockResolvedValueOnce({ data: mockTools } as any)
+        .mockResolvedValueOnce({
+          data: [
+            ...mockTools,
+            enabledByDefault("uuid-pylint", "Pylint"),
+            enabledByDefault("uuid-sonar", "SonarCSharp"),
+          ],
+        } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "tools", "gh", "test-org", "test-repo",
+        "--import", tmpConfigPath, "--force", "-y",
+      ]);
+
+      expect(AnalysisService.configureTool).toHaveBeenCalledWith(
+        "gh", "test-org", "test-repo", "uuid-pylint", { enabled: false },
+      );
+      const output = getAllOutput();
+      expect(output).toContain(
+        "After unlinking coding standards, also disabled 1 tool not in the config: Pylint",
+      );
+      expect(output).toContain("enabled 1 cloud-only tool, left unchanged: SonarCSharp");
+      expect(output).toContain("imported successfully");
+    });
+
     it("should cancel import when user declines confirmation", async () => {
       vi.spyOn(prompt, "confirmAction").mockResolvedValue(false);
 

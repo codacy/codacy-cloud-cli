@@ -2,6 +2,7 @@ import * as path from "path";
 import { Command } from "commander";
 import ora from "ora";
 import ansis from "ansis";
+import pluralize from "pluralize";
 import {
   RemoteAuth,
   repositoryTokenOption,
@@ -229,6 +230,21 @@ Examples:
           );
 
           execSpinner.stop();
+
+          // Unlinking the standards can enable tools the preview never showed;
+          // say what the import did about them, since the user did not confirm it.
+          if (result.afterUnlink.disabled.length > 0) {
+            console.log(
+              `After unlinking coding standards, also disabled ${result.afterUnlink.disabled.length} ${pluralize("tool", result.afterUnlink.disabled.length)} not in the config: ${result.afterUnlink.disabled.join(", ")}`,
+            );
+          }
+          if (result.afterUnlink.leftEnabled.length > 0) {
+            console.log(
+              ansis.yellow(
+                `⚠ Unlinking coding standards enabled ${result.afterUnlink.leftEnabled.length} cloud-only ${pluralize("tool", result.afterUnlink.leftEnabled.length)}, left unchanged: ${result.afterUnlink.leftEnabled.join(", ")}`,
+              ),
+            );
+          }
 
           if (result.failed.length === 0) {
             console.log(

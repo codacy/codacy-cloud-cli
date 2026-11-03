@@ -30,6 +30,13 @@ export interface ImportPreview {
   unresolvedTools: string[];
   cloudOnlyTools: AnalysisTool[];
   localCliAvailable: boolean;
+  /**
+   * Tool IDs the local `codacy-analysis` CLI supports, as read for the preview
+   * (`null` when it could not be queried). Kept so `executeImport` can apply the
+   * same "disable only what the local CLI supports" rule when it re-reads the
+   * repository's tools after unlinking coding standards.
+   */
+  localToolIds: string[] | null;
   totalPatterns: number;
   standards: CodingStandardInfo[];
   configPath: string;
@@ -125,6 +132,44 @@ export async function getLocalSupportedToolIds(): Promise<string[] | null> {
   }
 }
 
+/**
+ * Splits the repository's enabled tools that the config does not mention into
+ * the ones the import disables — those the local `codacy-analysis` CLI supports,
+ * so the config is their full description — and the cloud-only ones it leaves
+ * unchanged. With no local CLI information nothing is disabled.
+ *
+ * The single rule shared by the preview and by `executeImport`'s re-check after
+ * unlinking coding standards, so the two can never disagree.
+ */
+export function splitEnabledNotInConfig(
+  config: CodacyConfig,
+  repoTools: AnalysisTool[],
+  allTools: Tool[],
+  localToolIds?: string[] | null,
+): { toolsToDisable: AnalysisTool[]; cloudOnlyTools: AnalysisTool[] } {
+  const configUuids = new Set(
+    config.tools
+      .map((t) => resolveToolId(t.toolId, allTools))
+      .filter((t): t is Tool => t !== undefined)
+      .map((t) => t.uuid),
+  );
+  const enabledNotInConfig = repoTools.filter(
+    (rt) => rt.settings.isEnabled && !configUuids.has(rt.uuid),
+  );
+  if (!localToolIds) return { toolsToDisable: [], cloudOnlyTools: [] };
+
+  const localUuids = new Set(
+    localToolIds
+      .map((id) => resolveToolId(id, allTools))
+      .filter((t): t is Tool => t !== undefined)
+      .map((t) => t.uuid),
+  );
+  return {
+    toolsToDisable: enabledNotInConfig.filter((rt) => localUuids.has(rt.uuid)),
+    cloudOnlyTools: enabledNotInConfig.filter((rt) => !localUuids.has(rt.uuid)),
+  };
+}
+
 export function buildImportPreview(
   config: CodacyConfig,
   repoTools: AnalysisTool[],
@@ -156,30 +201,12 @@ export function buildImportPreview(
     (r) => r.repoTool && r.repoTool.settings.isEnabled,
   );
 
-  // Repo tools that are currently enabled but NOT in the config
-  const resolvedUuids = new Set(resolved.map((r) => r.tool.uuid));
-  const enabledNotInConfig = repoTools.filter(
-    (rt) => rt.settings.isEnabled && !resolvedUuids.has(rt.uuid),
+  const { toolsToDisable, cloudOnlyTools } = splitEnabledNotInConfig(
+    config,
+    repoTools,
+    allTools,
+    localToolIds,
   );
-
-  // Only disable tools the local CLI supports; leave cloud-only tools unchanged
-  const localCliAvailable = localToolIds != null;
-  let toolsToDisable: AnalysisTool[];
-  let cloudOnlyTools: AnalysisTool[];
-
-  if (localToolIds) {
-    const localUuids = new Set(
-      localToolIds
-        .map((id) => resolveToolId(id, allTools))
-        .filter((t): t is Tool => t !== undefined)
-        .map((t) => t.uuid),
-    );
-    toolsToDisable = enabledNotInConfig.filter((rt) => localUuids.has(rt.uuid));
-    cloudOnlyTools = enabledNotInConfig.filter((rt) => !localUuids.has(rt.uuid));
-  } else {
-    toolsToDisable = [];
-    cloudOnlyTools = [];
-  }
 
   const totalPatterns = config.tools.reduce(
     (sum, t) => sum + (Array.isArray(t.patterns) ? t.patterns.length : 0),
@@ -192,7 +219,8 @@ export function buildImportPreview(
     toolsToReconfigure,
     unresolvedTools,
     cloudOnlyTools,
-    localCliAvailable,
+    localCliAvailable: localToolIds != null,
+    localToolIds: localToolIds ?? null,
     totalPatterns,
     standards,
     configPath,
@@ -343,6 +371,24 @@ function buildConfigurePatterns(
   }));
 }
 
+/** Outcome of `executeImport`. */
+export interface ImportResult {
+  succeeded: string[];
+  failed: ImportFailure[];
+  /**
+   * Changes made beyond the preview the user confirmed, because unlinking the
+   * coding standards enabled tools the preview could not see. Empty unless
+   * `--force` unlinked at least one standard. The caller must print them: they
+   * are the only part of the import the user did not approve explicitly.
+   */
+  afterUnlink: {
+    /** Locally supported tools the unlink enabled, which the import disabled. */
+    disabled: string[];
+    /** Cloud-only tools the unlink enabled; left on, as the preview would have. */
+    leftEnabled: string[];
+  };
+}
+
 export async function executeImport(
   provider: string,
   organization: string,
@@ -352,11 +398,13 @@ export async function executeImport(
   allTools: Tool[],
   spinner: ReturnType<typeof ora>,
   force: boolean = false,
-): Promise<{ succeeded: string[]; failed: ImportFailure[] }> {
+): Promise<ImportResult> {
   const succeeded: string[] = [];
   const failed: ImportFailure[] = [];
+  const afterUnlink: ImportResult["afterUnlink"] = { disabled: [], leftEnabled: [] };
 
   // Unlink coding standards when --force is used
+  let unlinkedStandards = 0;
   if (force) {
     for (const standard of preview.standards) {
       spinner.text = `Unlinking coding standard "${standard.name}"...`;
@@ -367,12 +415,52 @@ export async function executeImport(
           standard.id,
           { link: [], unlink: [repository] },
         );
+        unlinkedStandards++;
       } catch (err) {
         failed.push({
           tool: `Standard: ${standard.name}`,
           ...extractErrorDetails(err),
         });
       }
+    }
+  }
+
+  // The preview read the repository's tools while the standards still governed
+  // them. Unlinking hands every tool back to Codacy's own defaults, which can
+  // switch on a tool the preview never saw (ESLint, with its default pattern
+  // set, on a repository whose standard did not include it). Re-read the tools
+  // and disable those too, by the same rule the preview applied; otherwise the
+  // import leaves enabled a tool the config does not contain.
+  let toolsToDisable = preview.toolsToDisable;
+  if (unlinkedStandards > 0 && preview.localToolIds) {
+    spinner.text = "Re-reading repository tools after unlinking coding standards...";
+    try {
+      const response = await AnalysisService.listRepositoryTools(
+        provider,
+        organization,
+        repository,
+      );
+      const planned = new Set(toolsToDisable.map((t) => t.uuid));
+      const known = new Set(preview.cloudOnlyTools.map((t) => t.uuid));
+      const now = splitEnabledNotInConfig(
+        config,
+        response.data,
+        allTools,
+        preview.localToolIds,
+      );
+      const extra = now.toolsToDisable.filter((t) => !planned.has(t.uuid));
+      toolsToDisable = [...toolsToDisable, ...extra];
+      afterUnlink.disabled = extra.map((t) => t.name);
+      afterUnlink.leftEnabled = now.cloudOnlyTools
+        .filter((t) => !known.has(t.uuid))
+        .map((t) => t.name);
+    } catch (err) {
+      // Not fatal: the import itself can still be applied. Report it, since a
+      // tool the unlink enabled may now be left on.
+      failed.push({
+        tool: "Re-reading repository tools after unlinking standards",
+        ...extractErrorDetails(err),
+      });
     }
   }
 
@@ -438,7 +526,7 @@ export async function executeImport(
   }
 
   // Disable tools not in config
-  for (const tool of preview.toolsToDisable) {
+  for (const tool of toolsToDisable) {
     spinner.text = `Disabling ${tool.name}...`;
     try {
       await AnalysisService.configureTool(
@@ -457,5 +545,11 @@ export async function executeImport(
     }
   }
 
-  return { succeeded, failed };
+  // Report only the disables that went through; a failed one is already in
+  // the failure table.
+  afterUnlink.disabled = afterUnlink.disabled.filter((name) =>
+    succeeded.includes(`${name} (disabled)`),
+  );
+
+  return { succeeded, failed, afterUnlink };
 }
