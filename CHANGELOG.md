@@ -1,5 +1,11 @@
 # @codacy/codacy-cloud-cli
 
+## 1.14.1
+
+### Patch Changes
+
+- [#62](https://github.com/codacy/codacy-cloud-cli/pull/62) [`a846f20`](https://github.com/codacy/codacy-cloud-cli/commit/a846f202741785c4f886bb34a4bebe63e3b3b520) Thanks [@alerizzo](https://github.com/alerizzo)! - `codacy tools --import --force` no longer leaves enabled a tool that unlinking the coding standard switched on. Unlinking hands the repository's tools back to Codacy's defaults, which can enable tools the import's preview never saw (for example ESLint with its default patterns, TypeScript rules included, in a repository without TypeScript). The import now re-reads the repository's tools after unlinking and disables those as well, by the same rule as before: only tools the local `codacy-analysis` CLI supports, never cloud-only ones. It prints what it changed after unlinking, including any cloud-only tool the unlink enabled and left on, since none of it was in the preview you confirmed.
+
 ## 1.14.0
 
 ### Minor Changes
