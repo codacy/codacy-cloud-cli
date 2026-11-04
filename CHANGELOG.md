@@ -1,5 +1,11 @@
 # @codacy/codacy-cloud-cli
 
+## 1.15.0
+
+### Minor Changes
+
+- [#64](https://github.com/codacy/codacy-cloud-cli/pull/64) [`d4490e4`](https://github.com/codacy/codacy-cloud-cli/commit/d4490e438f4def472371aa32892792d9b7502fcd) Thanks [@alerizzo](https://github.com/alerizzo)! - Require a Node.js runtime patched for CVE-2026-111497 (Brotli decoder out-of-bounds write): `^22.23.4 || ^24.22.1 || >=26.12.1`. Node.js 20 is end-of-life, never got the fix, and is no longer supported. The CLI decompresses Brotli-encoded HTTP responses through Node's bundled decoder, so upgrade Node.js if you are on an older release.
+
 ## 1.14.1
 
 ### Patch Changes
