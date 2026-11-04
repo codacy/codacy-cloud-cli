@@ -7,7 +7,7 @@
 - **Binary name:** `codacy` (registered in `package.json` under `bin`)
 - **Included files:** `dist/` and `README.md` (via `files` field)
 - **Pre-publish:** `prepublishOnly` runs `npm run update-api && npm run build` as a safety net for local publishes
-- **Engines:** requires Node.js >= 20
+- **Engines:** requires Node.js `^22.23.4 || ^24.22.1 || >=26.12.1` — the first releases of each line with the bundled-Brotli fix for CVE-2026-111497 (Node 20 is EOL and was never patched)
 - **Install globally:** `npm install -g "@codacy/codacy-cloud-cli"`
 
 ## GitHub Actions
@@ -16,7 +16,7 @@
 
 Triggers on: push and pull requests to `main`.
 
-Matrix: Node.js 20, 22.
+Matrix: Node.js 22, 24.
 
 Jobs:
 - **build-and-test**: checkout → setup node → install → generate API client → type check → build → smoke test the built CLI → test

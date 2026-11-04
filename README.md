@@ -172,7 +172,7 @@ npm run update-api       # Update the auto-generated API client
 
 ### CI/CD
 
-- **CI**: Runs on every push to `main` and on PRs. Builds, smoke-tests the built CLI, and runs the test suite across Node.js 20 and 22.
+- **CI**: Runs on every push to `main` and on PRs. Builds, smoke-tests the built CLI, and runs the test suite across Node.js 22 and 24.
 - **Release**: Uses [changesets](https://github.com/changesets/changesets) for automated versioning and npm publishing.
 
 #### Publishing a new version
