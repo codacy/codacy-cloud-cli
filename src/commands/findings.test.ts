@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Command } from "commander";
-import { registerFindingsCommand } from "./findings";
+import { registerFindingsCommand, parseImageFilter } from "./findings";
 import { SecurityService } from "../api/client/services/SecurityService";
 
 vi.mock("../api/client/services/SecurityService");
@@ -844,6 +844,43 @@ describe("findings command", () => {
       );
     });
 
+    it("should split --image name:tag into name and tag", async () => {
+      vi.mocked(SecurityService.searchSecurityItems).mockResolvedValue({
+        data: [],
+      } as any);
+
+      await runFindings("findings", "gh", "test-org", "--image", " nginx:1.25.3 ");
+
+      expect(SecurityService.searchSecurityItems).toHaveBeenCalledWith(
+        "gh",
+        "test-org",
+        undefined,
+        100,
+        "Status",
+        "asc",
+        {
+          statuses: ["Overdue", "OnTrack", "DueSoon"],
+          containerImage: { name: "nginx", tag: "1.25.3" },
+        },
+      );
+    });
+
+    it("should refuse an empty --image before any request", async () => {
+      const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit called");
+      });
+
+      await expect(
+        runFindings("findings", "gh", "test-org", "--image", "  "),
+      ).rejects.toThrow("process.exit called");
+
+      expect(console.error).toHaveBeenCalledWith(
+        expect.stringContaining("--image needs an image name"),
+      );
+      expect(SecurityService.searchSecurityItems).not.toHaveBeenCalled();
+      mockExit.mockRestore();
+    });
+
     it("should refuse --image-tag without --image before any request", async () => {
       const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
         throw new Error("process.exit called");
@@ -926,6 +963,64 @@ describe("findings command", () => {
       const json = JSON.parse(vi.mocked(console.log).mock.calls[0][0]);
       expect(json.findings[0].imageName).toBe("codacy/codacy-website");
       expect(json.findings[0].imageTag).toBe("1.25.3");
+    });
+  });
+
+  describe("parseImageFilter", () => {
+    it("returns undefined when neither option is given", () => {
+      expect(parseImageFilter(undefined, undefined)).toBeUndefined();
+    });
+
+    it("trims the name and tag", () => {
+      expect(parseImageFilter(" nginx ", " 1.25.3 ")).toEqual({
+        name: "nginx",
+        tag: "1.25.3",
+      });
+    });
+
+    it("keeps a registry port as part of the name", () => {
+      expect(parseImageFilter("registry:5000/team/app", undefined)).toEqual({
+        name: "registry:5000/team/app",
+      });
+      expect(parseImageFilter("registry:5000/team/app:2.0", undefined)).toEqual({
+        name: "registry:5000/team/app",
+        tag: "2.0",
+      });
+    });
+
+    it("accepts the same tag given both ways", () => {
+      expect(parseImageFilter("nginx:1.25.3", "1.25.3")).toEqual({
+        name: "nginx",
+        tag: "1.25.3",
+      });
+    });
+
+    it("refuses two different tags", () => {
+      expect(() => parseImageFilter("nginx:1.25.3", "1.26.0")).toThrow(
+        "name different tags",
+      );
+    });
+
+    it("refuses empty values", () => {
+      expect(() => parseImageFilter("", undefined)).toThrow("--image needs an image name");
+      expect(() => parseImageFilter("nginx", " ")).toThrow("--image-tag needs a tag");
+    });
+
+    it("refuses a tag without a name", () => {
+      expect(() => parseImageFilter(undefined, "1.25.3")).toThrow(
+        "--image-tag requires --image",
+      );
+    });
+
+    it("refuses a dangling colon or a missing name", () => {
+      expect(() => parseImageFilter("nginx:", undefined)).toThrow("expects name or name:tag");
+      expect(() => parseImageFilter(":1.25.3", undefined)).toThrow("expects name or name:tag");
+    });
+
+    it("refuses a digest reference", () => {
+      expect(() => parseImageFilter("nginx@sha256:abc", undefined)).toThrow(
+        "not a digest reference",
+      );
     });
   });
 

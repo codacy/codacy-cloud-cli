@@ -287,6 +287,10 @@ Dependency-chain helpers shared between `findings.ts` (list) and `finding.ts` (d
 - `formatDependencyChainsLine(chains, fixedVersion)` — one-line list summary: first chain with its Direct/Transitive label + `... and N more`; returns `null` for no chains
 - `formatDependencyChainsBlock(chains, fixedVersion)` — multi-line detail block: all chains, label shown once, continuation lines aligned under the label; returns `null` for no chains
 
+Container-image helper shared between `findings.ts` (list) and `finding.ts` (detail):
+- `formatImageReference(imageName, imageTag)` — `name:tag` (or `name`) for a container scanning finding, `undefined` without an image. Both commands show it **in place of the repository** on the header line (`findings` also in its single-repository view, where the repository is hidden). Returns the raw value; callers sanitize before styling
+- `parseImageFilter(image, imageTag)` (exported from `findings.ts`, not shared) builds the `containerImage` request filter and **refuses** input the API would mishandle silently — empty values (a truthiness check would drop `--image ""` and widen to the whole org), a tag without a name, a digest, conflicting tags — and splits `--image name:tag`, treating only a colon after the last `/` as a tag separator so a registry port stays in the name
+
 Advisory-information helpers shared between `issue.ts`/`pull-request.ts` (via `CommitIssue.advisoryInformation`) and `finding.ts`/`findings.ts` (via `SrmItem.advisoryInformation`) — same `AdvisoryInformation` shape from either source:
 - `summarizeFunctions(fns, limit = 3)` — compact `fn1, fn2 (+N more)` string for card views (`issue`/`pull-request` cards, `findings` list)
 - `printAdvisoryBlock(advisory)` — full detail block: bold `Vulnerable Functions (<advisoryId>)` header, optional `Published:` date, one bullet per function; used by `printIssueCodeContext` (issue detail views) and directly by `finding.ts` when there's no linked Codacy issue to render it via that path

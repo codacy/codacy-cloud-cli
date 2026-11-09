@@ -10,6 +10,7 @@ import {
   formatDueDate,
   formatVersionSegment,
   formatDependencyChainsBlock,
+  formatImageReference,
   printCveBlock,
   printAdvisoryBlock,
   printIssueCodeContext,
@@ -47,7 +48,7 @@ function printFindingDetail(
 
   console.log();
 
-  // Line 1: Priority | SecurityCategory ScanType | Likelihood EffortToFix | Repository  <id>
+  // Line 1: Priority | SecurityCategory ScanType | Likelihood EffortToFix | Repository or Image  <id>
   const line1Parts: string[] = [colorPriority(item.priority)];
 
   const catParts = [
@@ -63,7 +64,11 @@ function printFindingDetail(
   ) as string[];
   if (penTestParts.length > 0) line1Parts.push(penTestParts.join(" "));
 
-  if (item.repository) line1Parts.push(ansis.dim(sanitizeText(item.repository)));
+  // A container scanning finding shows its image:tag in the repository's
+  // slot, the same as on the `findings` card it was picked from.
+  const image = formatImageReference(item.imageName, item.imageTag);
+  if (image) line1Parts.push(ansis.dim(sanitizeText(image)));
+  else if (item.repository) line1Parts.push(ansis.dim(sanitizeText(item.repository)));
 
   const idLabel = ansis.hex("#555555")(item.id);
   console.log(line1Parts.join(pipe) + `  ${idLabel}`);
@@ -276,6 +281,8 @@ Examples:
             "finding.fixedVersion",
             "finding.application",
             "finding.affectedTargets",
+            "finding.imageName",
+            "finding.imageTag",
             "finding.dependencyChains",
             "finding.ignored",
             "finding.summary",

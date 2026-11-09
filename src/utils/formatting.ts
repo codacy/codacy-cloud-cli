@@ -131,6 +131,20 @@ function dependencyChainBody(chain: string[], fixedVersion?: string[]): string {
 }
 
 /**
+ * The container image a finding was scanned from, as `name:tag` (just `name`
+ * when there is no tag), or undefined for a finding with no image. Shared by
+ * `findings` and `finding`, which show it in place of the repository. Returns
+ * the raw value: callers sanitize it before styling (CWE-150).
+ */
+export function formatImageReference(
+  imageName: string | undefined,
+  imageTag: string | undefined,
+): string | undefined {
+  if (!imageName) return undefined;
+  return imageTag ? `${imageName}:${imageTag}` : imageName;
+}
+
+/**
  * Format the "affected → fixed" version segment shown on a finding's status line
  * for SCA findings that have no dependency chains. Returns null when there is no
  * affected version. `includeUpdatePrefix` prepends "Update " (the findings list

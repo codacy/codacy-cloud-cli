@@ -30,12 +30,21 @@ codacy find gh my-org my-repo --output json
 | `--categories <list>` | `-c` | Comma-separated security category names |
 | `--scan-types <list>` | `-T` | Comma-separated scan types: SAST, Secrets, SCA, ContainerSCA (aliases: ContainerScanning, Container), CICD, IaC, DAST, PenTesting, License, CSPM. Case-insensitive; spaces, hyphens and underscores are ignored |
 | `--dast-targets <list>` | `-d` | Comma-separated DAST target URLs |
-| `--image <name>` | `-i` | Container image name (sent as `containerImage.name`) |
-| `--image-tag <tag>` | `-t` | Container image tag (sent as `containerImage.tag`). Requires `--image`: the API rejects a tag without a name, so the CLI refuses it locally before any request or git auto-detection |
+| `--image <name>` | `-i` | Container image name, or `name:tag` (sent as `containerImage.name` / `.tag`) |
+| `--image-tag <tag>` | `-t` | Container image tag (sent as `containerImage.tag`). Requires `--image`: the API rejects a tag without a name |
 
 Default status filter: `Overdue,OnTrack,DueSoon`.
 
-`--image` / `--image-tag` map to the request body's single `ContainerImageFilter` (one image per request, not a list — hence singular names). `--image-tag` rather than `--tag` so it reads as narrowing the image, not as a finding tag. `--image` does not add `ContainerSCA` to `--scan-types` implicitly; the API applies the filter itself.
+`--image` / `--image-tag` are validated by `parseImageFilter`, before git auto-detection or any request, and refused rather than sent when the API would mishandle them silently:
+
+- **Empty or whitespace-only values.** A truthiness check would drop `--image ""`, widening the result to every finding in the org (a script's `--image "$IMG"` with `IMG` unset). Both values are trimmed.
+- **`--image-tag` without an image name.**
+- **A digest reference** (`name@sha256:…`): the API filters by tag only.
+- **Two different tags**, one in `--image name:tag` and one in `--image-tag`. The same tag given both ways is accepted.
+
+`--image name:tag` is split into name and tag, because the cards print the image in that form and copying it back is the natural next step. Only a colon after the last `/` starts a tag, so a registry port (`registry:5000/app`) stays part of the name.
+
+They map to the request body's single `ContainerImageFilter` (one image per request, not a list — hence singular names). `--image-tag` rather than `--tag` so it reads as narrowing the image, not as a finding tag. `--image` does not add `ContainerSCA` to `--scan-types` implicitly; the API applies the filter itself.
 
 ## Output
 
@@ -83,4 +92,4 @@ When an item carries `imageName` (container scanning findings), the header line 
 
 ## Tests
 
-File: `src/commands/findings.test.ts` — 37 tests.
+File: `src/commands/findings.test.ts` — 48 tests (incl. 9 unit tests for `parseImageFilter`).
