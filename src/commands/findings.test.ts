@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Command } from "commander";
-import { registerFindingsCommand } from "./findings";
+import { registerFindingsCommand, parseImageFilter } from "./findings";
 import { SecurityService } from "../api/client/services/SecurityService";
 
 vi.mock("../api/client/services/SecurityService");
@@ -376,6 +376,36 @@ describe("findings command", () => {
     );
   });
 
+  it("should map container scanning aliases to ContainerSCA and de-duplicate", async () => {
+    vi.mocked(SecurityService.searchSecurityItems).mockResolvedValue({
+      data: [],
+    } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "findings",
+      "gh",
+      "test-org",
+      "--scan-types",
+      "ContainerSCA,container-scanning,Container_Scanning,container",
+    ]);
+
+    expect(SecurityService.searchSecurityItems).toHaveBeenCalledWith(
+      "gh",
+      "test-org",
+      undefined,
+      100,
+      "Status",
+      "asc",
+      {
+        statuses: ["Overdue", "OnTrack", "DueSoon"],
+        scanTypes: ["ContainerSCA"],
+      },
+    );
+  });
+
   it("should preserve the API sort order (no client-side resorting)", async () => {
     // API returns Medium first, Critical second — client must not re-sort
     const apiOrder = [mockFindings[1], mockFindings[0]]; // Medium, then Critical
@@ -745,6 +775,253 @@ describe("findings command", () => {
     ).rejects.toThrow("process.exit called");
 
     mockExit.mockRestore();
+  });
+
+  describe("container image filter", () => {
+    const containerFinding = {
+      ...mockFindings[0],
+      id: "finding-container",
+      scanType: "ContainerSCA",
+      imageName: "codacy/codacy-website",
+      imageTag: "1.25.3",
+    };
+
+    async function runFindings(...args: string[]) {
+      const program = createProgram();
+      await program.parseAsync(["node", "test", ...args]);
+    }
+
+    it("should send containerImage with name only when --image is given", async () => {
+      vi.mocked(SecurityService.searchSecurityItems).mockResolvedValue({
+        data: [],
+      } as any);
+
+      await runFindings("findings", "gh", "test-org", "--image", "nginx");
+
+      expect(SecurityService.searchSecurityItems).toHaveBeenCalledWith(
+        "gh",
+        "test-org",
+        undefined,
+        100,
+        "Status",
+        "asc",
+        {
+          statuses: ["Overdue", "OnTrack", "DueSoon"],
+          containerImage: { name: "nginx" },
+        },
+      );
+    });
+
+    it("should send containerImage with name and tag when both are given", async () => {
+      vi.mocked(SecurityService.searchSecurityItems).mockResolvedValue({
+        data: [],
+      } as any);
+
+      await runFindings(
+        "findings",
+        "gh",
+        "test-org",
+        "-T",
+        "container",
+        "-i",
+        "nginx",
+        "-t",
+        "1.25.3",
+      );
+
+      expect(SecurityService.searchSecurityItems).toHaveBeenCalledWith(
+        "gh",
+        "test-org",
+        undefined,
+        100,
+        "Status",
+        "asc",
+        {
+          statuses: ["Overdue", "OnTrack", "DueSoon"],
+          scanTypes: ["ContainerSCA"],
+          containerImage: { name: "nginx", tag: "1.25.3" },
+        },
+      );
+    });
+
+    it("should split --image name:tag into name and tag", async () => {
+      vi.mocked(SecurityService.searchSecurityItems).mockResolvedValue({
+        data: [],
+      } as any);
+
+      await runFindings("findings", "gh", "test-org", "--image", " nginx:1.25.3 ");
+
+      expect(SecurityService.searchSecurityItems).toHaveBeenCalledWith(
+        "gh",
+        "test-org",
+        undefined,
+        100,
+        "Status",
+        "asc",
+        {
+          statuses: ["Overdue", "OnTrack", "DueSoon"],
+          containerImage: { name: "nginx", tag: "1.25.3" },
+        },
+      );
+    });
+
+    it("should refuse an empty --image before any request", async () => {
+      const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit called");
+      });
+
+      await expect(
+        runFindings("findings", "gh", "test-org", "--image", "  "),
+      ).rejects.toThrow("process.exit called");
+
+      expect(console.error).toHaveBeenCalledWith(
+        expect.stringContaining("--image needs an image name"),
+      );
+      expect(SecurityService.searchSecurityItems).not.toHaveBeenCalled();
+      mockExit.mockRestore();
+    });
+
+    it("should refuse --image-tag without --image before any request", async () => {
+      const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit called");
+      });
+
+      await expect(
+        runFindings("findings", "gh", "test-org", "--image-tag", "1.25.3"),
+      ).rejects.toThrow("process.exit called");
+
+      expect(console.error).toHaveBeenCalledWith(
+        expect.stringContaining("--image-tag requires --image"),
+      );
+      expect(SecurityService.searchSecurityItems).not.toHaveBeenCalled();
+      mockExit.mockRestore();
+    });
+
+    // The header line is the only card line that carries the finding id.
+    function headerLine(): string {
+      const calls = vi.mocked(console.log).mock.calls.map((c) => String(c[0] ?? ""));
+      return calls.find((l) => l.includes("finding-container")) ?? "";
+    }
+
+    it("should show image:tag instead of the repository on the header line", async () => {
+      vi.mocked(SecurityService.searchSecurityItems).mockResolvedValue({
+        data: [containerFinding],
+      } as any);
+
+      await runFindings("findings", "gh", "test-org");
+
+      const header = headerLine();
+      expect(header).toContain("codacy/codacy-website:1.25.3");
+      expect(header).not.toContain("my-repo");
+      // Shown once, not repeated on the status line.
+      expect(getAllOutput().split("codacy/codacy-website").length - 1).toBe(1);
+    });
+
+    it("should show the image in the single-repository view too", async () => {
+      vi.mocked(SecurityService.searchSecurityItems).mockResolvedValue({
+        data: [containerFinding],
+      } as any);
+
+      await runFindings("findings", "gh", "test-org", "test-repo");
+
+      expect(headerLine()).toContain("codacy/codacy-website:1.25.3");
+    });
+
+    it("should show the image name alone when the finding has no tag", async () => {
+      vi.mocked(SecurityService.searchSecurityItems).mockResolvedValue({
+        data: [{ ...containerFinding, imageTag: undefined }],
+      } as any);
+
+      await runFindings("findings", "gh", "test-org");
+
+      const header = headerLine();
+      expect(header).toContain("codacy/codacy-website");
+      expect(header).not.toContain("codacy/codacy-website:");
+    });
+
+    it("should keep showing the repository for non-container findings", async () => {
+      vi.mocked(SecurityService.searchSecurityItems).mockResolvedValue({
+        data: [mockFindings[0]],
+      } as any);
+
+      await runFindings("findings", "gh", "test-org");
+
+      const header = vi
+        .mocked(console.log)
+        .mock.calls.map((c) => String(c[0] ?? ""))
+        .find((l) => l.includes(mockFindings[0].id));
+      expect(header).toContain("my-repo");
+    });
+
+    it("should include imageName and imageTag in JSON output", async () => {
+      vi.mocked(SecurityService.searchSecurityItems).mockResolvedValue({
+        data: [containerFinding],
+      } as any);
+
+      await runFindings("--output", "json", "findings", "gh", "test-org");
+
+      const json = JSON.parse(vi.mocked(console.log).mock.calls[0][0]);
+      expect(json.findings[0].imageName).toBe("codacy/codacy-website");
+      expect(json.findings[0].imageTag).toBe("1.25.3");
+    });
+  });
+
+  describe("parseImageFilter", () => {
+    it("returns undefined when neither option is given", () => {
+      expect(parseImageFilter(undefined, undefined)).toBeUndefined();
+    });
+
+    it("trims the name and tag", () => {
+      expect(parseImageFilter(" nginx ", " 1.25.3 ")).toEqual({
+        name: "nginx",
+        tag: "1.25.3",
+      });
+    });
+
+    it("keeps a registry port as part of the name", () => {
+      expect(parseImageFilter("registry:5000/team/app", undefined)).toEqual({
+        name: "registry:5000/team/app",
+      });
+      expect(parseImageFilter("registry:5000/team/app:2.0", undefined)).toEqual({
+        name: "registry:5000/team/app",
+        tag: "2.0",
+      });
+    });
+
+    it("accepts the same tag given both ways", () => {
+      expect(parseImageFilter("nginx:1.25.3", "1.25.3")).toEqual({
+        name: "nginx",
+        tag: "1.25.3",
+      });
+    });
+
+    it("refuses two different tags", () => {
+      expect(() => parseImageFilter("nginx:1.25.3", "1.26.0")).toThrow(
+        "name different tags",
+      );
+    });
+
+    it("refuses empty values", () => {
+      expect(() => parseImageFilter("", undefined)).toThrow("--image needs an image name");
+      expect(() => parseImageFilter("nginx", " ")).toThrow("--image-tag needs a tag");
+    });
+
+    it("refuses a tag without a name", () => {
+      expect(() => parseImageFilter(undefined, "1.25.3")).toThrow(
+        "--image-tag requires --image",
+      );
+    });
+
+    it("refuses a dangling colon or a missing name", () => {
+      expect(() => parseImageFilter("nginx:", undefined)).toThrow("expects name or name:tag");
+      expect(() => parseImageFilter(":1.25.3", undefined)).toThrow("expects name or name:tag");
+    });
+
+    it("refuses a digest reference", () => {
+      expect(() => parseImageFilter("nginx@sha256:abc", undefined)).toThrow(
+        "not a digest reference",
+      );
+    });
   });
 
   describe("advisory information (vulnerable functions)", () => {

@@ -283,6 +283,48 @@ describe("finding command", () => {
     expect(output).not.toContain("0.1.2 → 0.1.5");
   });
 
+  describe("container image", () => {
+    const containerFinding = {
+      ...mockScaFinding,
+      id: "img-123",
+      scanType: "ContainerSCA",
+      imageName: "codacy/codacy-website",
+      imageTag: "1.25.3",
+    };
+
+    it("should show image:tag instead of the repository on the header line", async () => {
+      vi.mocked(SecurityService.getSecurityItem).mockResolvedValue({
+        data: containerFinding,
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "finding", "gh", "test-org", "img-123"]);
+
+      // The header line is the only line that carries the finding id.
+      const header = vi
+        .mocked(console.log)
+        .mock.calls.map((c) => String(c[0] ?? ""))
+        .find((l) => l.includes("img-123"));
+      expect(header).toContain("codacy/codacy-website:1.25.3");
+      expect(header).not.toContain("my-repo");
+    });
+
+    it("should include imageName and imageTag in JSON output", async () => {
+      vi.mocked(SecurityService.getSecurityItem).mockResolvedValue({
+        data: containerFinding,
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "--output", "json", "finding", "gh", "test-org", "img-123",
+      ]);
+
+      const json = JSON.parse(vi.mocked(console.log).mock.calls[0][0]);
+      expect(json.finding.imageName).toBe("codacy/codacy-website");
+      expect(json.finding.imageTag).toBe("1.25.3");
+    });
+  });
+
   it("should include dependencyChains in JSON output", async () => {
     vi.mocked(SecurityService.getSecurityItem).mockResolvedValue({
       data: mockScaWithChains,

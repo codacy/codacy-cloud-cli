@@ -41,7 +41,7 @@ The `findingId` is the UUID shown in dim gray at the end of each findings card.
 ## Output Format
 
 ```
-{Priority colored} | {SecurityCategory} {ScanType} | {Optional: Likelihood} {EffortToFix} | {Optional: Repository}  {id dimmed}
+{Priority colored} | {SecurityCategory} {ScanType} | {Optional: Likelihood} {EffortToFix} | {Optional: Image or Repository}  {id dimmed}
 {Finding title}
 
 {Status} {DueAt} | {Optional: CVE/CWE} | {Optional: AffectedVersion → FixedVersion} | {Optional: Application} | {Optional: AffectedTargets}
@@ -77,6 +77,10 @@ For Codacy-source findings, the CVE block is injected between the code context a
 
 When `item.advisoryInformation` is present, shows the shared `printAdvisoryBlock` (advisory ID header, optional published date, one bullet per vulnerable function) via `utils/formatting.ts` — the same renderer used by `issue`/`pull-request --issue`. Shown here only when there is **no** linked Codacy issue; when there is one, `printIssueCodeContext` already renders the equivalent block from `issue.advisoryInformation`, so this avoids a duplicate. This is what makes vulnerable functions visible for SCA/dependency findings and any other non-Codacy-source finding, which have no linked issue to borrow the block from. Included in `--output json` as `finding.advisoryInformation.{advisoryId,vulnerableFunctions,publishedAt}`.
 
+### Container image (container scanning)
+
+When `item.imageName` is present, the header line shows the scanned image as `name:tag` (just `name` without `imageTag`) **in place of the repository**, matching the `findings` card the id was picked from. Built by the shared `formatImageReference` (`utils/formatting.ts`) and sanitized. Included in `--output json` as `finding.imageName` / `finding.imageTag`.
+
 ## Dependency import chains (SCA)
 
 When a finding carries `dependencyChains` (`string[][]`), **all** chains are listed
@@ -97,4 +101,4 @@ carries the fixed version — `CommitIssue` itself has no `fixedVersion` field t
 
 ## Tests
 
-File: `src/commands/finding.test.ts` — 29 tests (27 + 2 for the linked-issue dependency-chain dedup).
+File: `src/commands/finding.test.ts` — 31 tests (27 + 2 for the linked-issue dependency-chain dedup + 2 for the container image).

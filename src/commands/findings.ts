@@ -17,12 +17,14 @@ import {
   formatDueDate,
   formatVersionSegment,
   formatDependencyChainsLine,
+  formatImageReference,
   summarizeFunctions,
 } from "../utils/formatting";
 import { sanitizeText } from "../utils/sanitize";
 import { SecurityService } from "../api/client/services/SecurityService";
 import { SrmItem } from "../api/client/models/SrmItem";
 import { SearchSRMItems } from "../api/client/models/SearchSRMItems";
+import { ContainerImageFilter } from "../api/client/models/ContainerImageFilter";
 
 const PRIORITY_ORDER: Record<string, number> = {
   Critical: 0,
@@ -55,6 +57,12 @@ const SCAN_TYPE_NORMALIZE: Record<string, string> = {
   sast: "SAST",
   secrets: "Secrets",
   sca: "SCA",
+  // The API calls container image scanning "ContainerSCA"; the product UI
+  // calls it "Container scanning", so both spellings (and plain "container")
+  // map to the API value.
+  containersca: "ContainerSCA",
+  containerscanning: "ContainerSCA",
+  container: "ContainerSCA",
   cicd: "CICD",
   iac: "IaC",
   dast: "DAST",
@@ -77,7 +85,7 @@ function normalizeScanType(input: string): string {
   );
 }
 
-// Line 1: Priority | SecurityCategory ScanType | Likelihood EffortToFix | Repository
+// Line 1: Priority | SecurityCategory ScanType | Likelihood EffortToFix | Repository or Image
 function buildFindingHeaderLine(item: SrmItem, showRepo: boolean): string {
   const pipe = ` ${ansis.dim("|")} `;
   const parts: string[] = [colorPriority(item.priority)];
@@ -95,7 +103,16 @@ function buildFindingHeaderLine(item: SrmItem, showRepo: boolean): string {
   ) as string[];
   if (penTestParts.length > 0) parts.push(penTestParts.join(" "));
 
-  if (showRepo && item.repository) parts.push(ansis.dim(sanitizeText(item.repository)));
+  // A container scanning finding is about an image, not a repository, so its
+  // image:tag takes the repository's slot. It is shown even in the
+  // single-repository view (where the repository is hidden as redundant),
+  // since the image is not implied by the command's arguments.
+  const image = formatImageReference(item.imageName, item.imageTag);
+  if (image) {
+    parts.push(ansis.dim(sanitizeText(image)));
+  } else if (showRepo && item.repository) {
+    parts.push(ansis.dim(sanitizeText(item.repository)));
+  }
 
   const idLabel = ansis.hex("#555555")(item.id);
   return parts.join(pipe) + `  ${idLabel}`;
@@ -176,6 +193,62 @@ function printFindingsList(
   }
 }
 
+/**
+ * Build the request's `containerImage` filter from `--image` / `--image-tag`,
+ * or undefined when neither was given. Throws (before any request) on input
+ * the API would mishandle silently:
+ *
+ * - An empty or whitespace-only value. A truthiness check would drop it, so
+ *   `--image "$IMG"` with `IMG` unset would widen to every finding in the org.
+ * - `--image-tag` without an image name: `ContainerImageFilter` requires `name`.
+ * - A digest reference (`name@sha256:…`): the API filters by tag only.
+ * - Two different tags, one in `--image name:tag` and one in `--image-tag`.
+ *
+ * `--image name:tag` is split, because the cards print the image in exactly
+ * that form and copying it back is the natural next step; sent whole it would
+ * match no image name. Only a colon after the last `/` starts a tag, so a
+ * registry port (`registry:5000/app`) stays part of the name.
+ */
+export function parseImageFilter(
+  image: string | undefined,
+  imageTag: string | undefined,
+): ContainerImageFilter | undefined {
+  if (image === undefined && imageTag === undefined) return undefined;
+
+  let name = image?.trim();
+  let tag = imageTag?.trim();
+  if (image !== undefined && !name) {
+    throw new Error("--image needs an image name, but the value is empty.");
+  }
+  if (imageTag !== undefined && !tag) {
+    throw new Error("--image-tag needs a tag, but the value is empty.");
+  }
+  if (!name) throw new Error("--image-tag requires --image <name>.");
+
+  if (name.includes("@")) {
+    throw new Error(
+      `--image takes an image name or name:tag, not a digest reference (got "${name}").`,
+    );
+  }
+
+  const colon = name.lastIndexOf(":");
+  if (colon > name.lastIndexOf("/")) {
+    const refTag = name.slice(colon + 1);
+    name = name.slice(0, colon);
+    if (!name || !refTag) {
+      throw new Error(`--image expects name or name:tag (got "${image!.trim()}").`);
+    }
+    if (tag && tag !== refTag) {
+      throw new Error(
+        `--image ${name}:${refTag} and --image-tag ${tag} name different tags; give the tag once.`,
+      );
+    }
+    tag = refTag;
+  }
+
+  return tag ? { name, tag } : { name };
+}
+
 function parseCommaList(value: string | undefined): string[] | undefined {
   if (!value) return undefined;
   return value
@@ -210,10 +283,12 @@ export function registerFindingsCommand(program: Command) {
     )
     .option(
       "-T, --scan-types <types>",
-      "comma-separated scan types (case-insensitive): SAST, Secrets, SCA, CICD, IaC, DAST, PenTesting, License, CSPM",
+      "comma-separated scan types (case-insensitive): SAST, Secrets, SCA, ContainerSCA (aliases: ContainerScanning, Container), CICD, IaC, DAST, PenTesting, License, CSPM",
     )
     .option("-n, --limit <n>", "maximum number of findings to return (default: 100, max: 1000)", "100")
     .option("-d, --dast-targets <urls>", "comma-separated DAST target URLs")
+    .option("-i, --image <name>", "container image name, or name:tag, e.g. nginx or nginx:1.25.3 (container scanning findings)")
+    .option("-t, --image-tag <tag>", "container image tag, e.g. 1.25.3 (requires --image)")
     .addOption(repositoryTokenOption())
     .addHelpText(
       "after",
@@ -224,6 +299,8 @@ Examples:
   $ codacy findings gh my-org                          # organization-wide findings
   $ codacy findings gh my-org --severities Critical,High
   $ codacy findings gh my-org my-repo --statuses Overdue,DueSoon
+  $ codacy findings gh my-org --scan-types ContainerSCA   # container image findings only
+  $ codacy findings gh my-org --image nginx --image-tag 1.25.3
   $ codacy findings gh my-org my-repo --limit 500
   $ codacy findings gh my-org my-repo --output json`,
     )
@@ -235,6 +312,12 @@ Examples:
     ) {
       try {
         resolveAccountAuth(this, "Codacy does not accept repository tokens on the security findings endpoints");
+
+        // Validated here, before git auto-detection or any request, so a bad
+        // --image/--image-tag is refused rather than silently widening or
+        // emptying the result. See parseImageFilter.
+        const opts = this.opts();
+        const containerImage = parseImageFilter(opts.image, opts.imageTag);
 
         const argCount = [providerArg, organizationArg, repositoryArg].filter(
           (v) => v !== undefined,
@@ -271,7 +354,6 @@ Examples:
           );
         }
 
-        const opts = this.opts();
         const format = getOutputFormat(this);
 
         const body: SearchSRMItems = {};
@@ -286,9 +368,13 @@ Examples:
         const categories = parseCommaList(opts.categories);
         if (categories) body.categories = categories;
         const scanTypes = parseCommaList(opts.scanTypes);
-        if (scanTypes) body.scanTypes = scanTypes.map(normalizeScanType);
+        // De-duplicated: several aliases map to the same API value (e.g.
+        // ContainerScanning and ContainerSCA).
+        if (scanTypes)
+          body.scanTypes = [...new Set(scanTypes.map(normalizeScanType))];
         const dastTargets = parseCommaList(opts.dastTargets);
         if (dastTargets) body.dastTargetUrls = dastTargets;
+        if (containerImage) body.containerImage = containerImage;
 
         const limit = Math.min(Math.max(parseInt(opts.limit, 10) || 100, 1), 1000);
 
@@ -342,6 +428,8 @@ Examples:
               "fixedVersion",
               "application",
               "affectedTargets",
+              "imageName",
+              "imageTag",
               "dependencyChains",
               "advisoryInformation.advisoryId",
               "advisoryInformation.vulnerableFunctions",
@@ -357,7 +445,7 @@ Examples:
         if (total > items.length || cursor) {
           printPaginationWarning(
             { cursor: "more", limit: items.length },
-            "Use --limit <n> (max 1000) to fetch more, or --severities, --statuses to filter.",
+            "Use --limit <n> (max 1000) to fetch more, or --severities, --statuses, --image to filter.",
           );
         }
       } catch (err) {

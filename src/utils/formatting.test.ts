@@ -23,6 +23,7 @@ import {
   coverageStatusNote,
   formatRepoCoverageCell,
   formatRepoCoverageDetail,
+  formatImageReference,
 } from "./formatting";
 import { formatFriendlyDate } from "./output";
 
@@ -468,6 +469,22 @@ describe("isBeingAnalyzed", () => {
 
   it("is false when never started", () => {
     expect(isBeingAnalyzed(undefined, undefined)).toBe(false);
+  });
+});
+
+describe("formatImageReference", () => {
+  it("returns name:tag when both are present", () => {
+    expect(formatImageReference("nginx", "1.25.3")).toBe("nginx:1.25.3");
+  });
+
+  it("returns the name alone when there is no tag", () => {
+    expect(formatImageReference("nginx", undefined)).toBe("nginx");
+    expect(formatImageReference("nginx", "")).toBe("nginx");
+  });
+
+  it("returns undefined when there is no image name", () => {
+    expect(formatImageReference(undefined, "1.25.3")).toBeUndefined();
+    expect(formatImageReference("", undefined)).toBeUndefined();
   });
 });
 
