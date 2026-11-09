@@ -17,7 +17,7 @@ import * as readline from "readline";
  * to answer must abort rather than delete by accident. `-y` is how a caller
  * says yes ahead of time.
  */
-export function confirmAction(message: string): Promise<boolean> {
+export async function confirmAction(message: string): Promise<boolean> {
   return new Promise((resolve) => {
     if (!process.stdin.isTTY) {
       resolve(false);

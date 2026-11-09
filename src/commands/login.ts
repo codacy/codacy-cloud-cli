@@ -17,7 +17,7 @@ import {
 /** Reads the account token from `--token`, or prompts for it interactively. */
 const acquireToken = async (tokenOption?: string): Promise<string> => {
   if (tokenOption) {
-    const token = String(tokenOption).trim();
+    const token = tokenOption.trim();
     if (!token) throw new Error("Token cannot be empty.");
     return token;
   }

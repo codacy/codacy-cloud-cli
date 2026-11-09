@@ -10,6 +10,10 @@ const ALGORITHM = "aes-256-gcm";
 const KEY_LENGTH = 32;
 const IV_LENGTH = 16;
 const SALT_LENGTH = 32;
+// GCM tags can legally be truncated (down to 4 bytes), and a truncated prefix of
+// a valid tag still verifies unless the expected length is pinned. We always
+// write the full 16-byte tag, so require exactly that on read.
+const AUTH_TAG_LENGTH = 16;
 const PBKDF2_ITERATIONS = 100_000;
 const PBKDF2_DIGEST = "sha512";
 
@@ -40,7 +44,9 @@ export function encryptToken(token: string): string {
   const iv = crypto.randomBytes(IV_LENGTH);
   const key = deriveKey(getMachineKey(), salt);
 
-  const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
+  const cipher = crypto.createCipheriv(ALGORITHM, key, iv, {
+    authTagLength: AUTH_TAG_LENGTH,
+  });
   const encrypted = Buffer.concat([
     cipher.update(token, "utf8"),
     cipher.final(),
@@ -66,7 +72,13 @@ export function decryptToken(payloadJson: string): string {
   const encrypted = Buffer.from(payload.encrypted, "hex");
   const key = deriveKey(getMachineKey(), salt);
 
-  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+  if (authTag.length !== AUTH_TAG_LENGTH) {
+    throw new Error("Invalid authentication tag length");
+  }
+
+  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv, {
+    authTagLength: AUTH_TAG_LENGTH,
+  });
   decipher.setAuthTag(authTag);
 
   const decrypted = Buffer.concat([
@@ -123,7 +135,7 @@ export function deleteCredentials(): boolean {
   }
 }
 
-export function promptForToken(prompt: string): Promise<string> {
+export async function promptForToken(prompt: string): Promise<string> {
   return new Promise((resolve, reject) => {
     if (!process.stdin.isTTY) {
       reject(new Error("Interactive input required. Use --token <value> instead."));
@@ -138,7 +150,7 @@ export function promptForToken(prompt: string): Promise<string> {
     let token = "";
 
     const onData = (char: string) => {
-      const chunk = char.toString();
+      const chunk = char;
 
       for (const c of chunk) {
         if (c === "\n" || c === "\r") {

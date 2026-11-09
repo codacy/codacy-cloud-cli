@@ -74,7 +74,7 @@ export async function mapWithConcurrency<T>(
     }
   };
   const size = Math.min(limit, items.length);
-  await Promise.all(Array.from({ length: size }, () => worker()));
+  await Promise.all(Array.from({ length: size }, async () => worker()));
 }
 
 /**

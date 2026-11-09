@@ -249,6 +249,6 @@ When completing work, agents **must** update relevant documentation:
 
 ## Useful Context
 
-- Codacy API docs: https://api.codacy.com/api/api-docs
+- Codacy API docs: <https://api.codacy.com/api/api-docs>
 - The CLI targets Codacy Cloud (app.codacy.com), not self-hosted instances
 - Provider shortcodes used in commands: `gh` (GitHub), `gl` (GitLab), `bb` (Bitbucket)

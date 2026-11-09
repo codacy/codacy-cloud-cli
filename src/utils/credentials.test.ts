@@ -71,6 +71,15 @@ describe("credentials", () => {
       expect(() => decryptToken(JSON.stringify(parsed))).toThrow();
     });
 
+    it("should reject a truncated auth tag", () => {
+      // A prefix of a valid GCM tag still verifies unless the tag length is
+      // pinned, so this would decrypt successfully without authTagLength.
+      const encrypted = encryptToken("my-secret");
+      const parsed = JSON.parse(encrypted);
+      parsed.authTag = parsed.authTag.slice(0, 8);
+      expect(() => decryptToken(JSON.stringify(parsed))).toThrow();
+    });
+
     it("should throw on invalid JSON", () => {
       expect(() => decryptToken("not-json")).toThrow();
     });

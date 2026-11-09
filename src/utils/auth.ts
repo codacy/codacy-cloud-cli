@@ -236,7 +236,7 @@ export function resolveAccountAuth(command: Command, because: string): AccountAu
  * hang off a non-whitelisted endpoint — see the pull request table in
  * `commands/repository.ts`.
  */
-export function fetchIfAccountToken<T, F>(
+export async function fetchIfAccountToken<T, F>(
   auth: RemoteAuth,
   fallback: F,
   fetch: () => Promise<T>,

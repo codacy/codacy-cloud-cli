@@ -25,7 +25,6 @@ import {
   truncate,
   buildGateStatus,
   formatStandards,
-  colorByGate,
   formatDelta,
   formatPrCoverage,
   formatRepoCoverageDetail,
@@ -540,7 +539,7 @@ Examples:
             organization,
             repository,
           ),
-          fetchIfAccountToken(auth, noPullRequests(), () =>
+          fetchIfAccountToken(auth, noPullRequests(), async () =>
             AnalysisService.listRepositoryPullRequests(
               provider,
               organization,

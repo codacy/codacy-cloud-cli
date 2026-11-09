@@ -21,7 +21,7 @@ function stripUserinfo(host: string): string {
 }
 
 export function parseGitRemoteUrl(url: string): RepoContext | null {
-  const match = url.match(SSH_REGEX) || url.match(HTTPS_REGEX);
+  const match = (SSH_REGEX.exec(url)) ?? (HTTPS_REGEX.exec(url));
   if (!match) return null;
 
   const [, rawHost, org, repo] = match;

@@ -1,0 +1,17 @@
+---
+exclude_paths:
+  # Already ignored in the Codacy UI; repeated here so the file and the UI agree
+  - "src/commands/issues.ts"
+engines:
+  eslint-9:
+    exclude_paths:
+      # Mock-heavy tests: unbound-method on expect(svc.method), `as any`, no-unsafe-*
+      - "**/*.test.ts"
+      - "src/test-support.ts"
+      # changesets helper (.cjs) — ESLint has no Node globals configured for it
+      - ".changeset/**"
+  markdownlint:
+    exclude_paths:
+      - "CHANGELOG.md"
+      - "CODE_OF_CONDUCT.md"
+      - "SPECS/commands/tools-and-patterns.md"

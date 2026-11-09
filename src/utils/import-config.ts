@@ -98,7 +98,7 @@ export function resolveToolId(
 
   // Match by prefix (strip trailing _ before comparing)
   const byPrefix = allTools.find(
-    (t) => t.prefix && t.prefix.replace(/_$/, "").toLowerCase() === id,
+    (t) => t.prefix?.replace(/_$/, "").toLowerCase() === id,
   );
   if (byPrefix) return byPrefix;
 
@@ -125,7 +125,7 @@ export async function getLocalSupportedToolIds(): Promise<string[] | null> {
     const info = JSON.parse(stdout);
     if (!info.tools || !Array.isArray(info.tools)) return null;
     return info.tools
-      .filter((t: any) => t && t.supported && typeof t.id === "string")
+      .filter((t: any) => t?.supported && typeof t.id === "string")
       .map((t: any) => t.id as string);
   } catch {
     return null;
@@ -193,12 +193,12 @@ export function buildImportPreview(
 
   // Tools in the config that need enabling (currently disabled or not present)
   const toolsToEnable = resolved.filter(
-    (r) => !r.repoTool || !r.repoTool.settings.isEnabled,
+    (r) => !r.repoTool?.settings.isEnabled,
   );
 
   // Tools in the config that are already enabled (need reconfiguration)
   const toolsToReconfigure = resolved.filter(
-    (r) => r.repoTool && r.repoTool.settings.isEnabled,
+    (r) => r.repoTool?.settings.isEnabled,
   );
 
   const { toolsToDisable, cloudOnlyTools } = splitEnabledNotInConfig(
