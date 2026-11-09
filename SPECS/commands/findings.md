@@ -30,8 +30,12 @@ codacy find gh my-org my-repo --output json
 | `--categories <list>` | `-c` | Comma-separated security category names |
 | `--scan-types <list>` | `-T` | Comma-separated scan types: SAST, Secrets, SCA, ContainerSCA (aliases: ContainerScanning, Container), CICD, IaC, DAST, PenTesting, License, CSPM. Case-insensitive; spaces, hyphens and underscores are ignored |
 | `--dast-targets <list>` | `-d` | Comma-separated DAST target URLs |
+| `--image <name>` | `-i` | Container image name (sent as `containerImage.name`) |
+| `--image-tag <tag>` | `-t` | Container image tag (sent as `containerImage.tag`). Requires `--image`: the API rejects a tag without a name, so the CLI refuses it locally before any request or git auto-detection |
 
 Default status filter: `Overdue,OnTrack,DueSoon`.
+
+`--image` / `--image-tag` map to the request body's single `ContainerImageFilter` (one image per request, not a list — hence singular names). `--image-tag` rather than `--tag` so it reads as narrowing the image, not as a finding tag. `--image` does not add `ContainerSCA` to `--scan-types` implicitly; the API applies the filter itself.
 
 ## Output
 
@@ -44,7 +48,7 @@ Card-style format:
 {Finding title}
 {Optional: affectedTargets}
 
-{Status} {DueAt} | {Optional: CVE or CWE} | {Optional: AffectedVersion → FixedVersion} | {Optional: Application}
+{Status} {DueAt} | {Optional: CVE or CWE} | {Optional: AffectedVersion → FixedVersion} | {Optional: Application} | {Optional: imageName[:imageTag]}
 {Optional: Dependency import chain (SCA findings with dependencyChains)}
 {Optional: Vulnerable functions: fn1, fn2 (+N more) — from item.advisoryInformation}
 
@@ -73,6 +77,10 @@ is dropped from the status line (it would duplicate the chain line).
 
 When an item carries `advisoryInformation` (`{advisoryId, vulnerableFunctions, publishedAt}`), a compact `Vulnerable functions: fn1, fn2 (+N more)` line is shown below the status/chain lines, via the shared `summarizeFunctions` helper (`utils/formatting.ts`, capped at 3 entries) — same rendering as `issue`/`pull-request`'s card view. Included in `--output json` as `advisoryInformation.{advisoryId,vulnerableFunctions,publishedAt}` per item.
 
+### Container image (container scanning)
+
+When an item carries `imageName` (container scanning findings), the status line ends with the scanned image as `name:tag` (just `name` when `imageTag` is absent), dimmed and sanitized. `--output json` includes `imageName` and `imageTag` per item.
+
 ## Tests
 
-File: `src/commands/findings.test.ts` — 29 tests.
+File: `src/commands/findings.test.ts` — 35 tests.

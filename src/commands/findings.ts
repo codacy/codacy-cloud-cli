@@ -130,6 +130,14 @@ function buildFindingStatusLine(item: SrmItem, hasChains: boolean): string {
 
   if (item.application) parts.push(ansis.dim(sanitizeText(item.application)));
 
+  // Container scanning findings: the scanned image, as name:tag.
+  if (item.imageName) {
+    const image = item.imageTag
+      ? `${item.imageName}:${item.imageTag}`
+      : item.imageName;
+    parts.push(ansis.dim(sanitizeText(image)));
+  }
+
   return parts.join(pipe);
 }
 
@@ -216,10 +224,12 @@ export function registerFindingsCommand(program: Command) {
     )
     .option(
       "-T, --scan-types <types>",
-      "comma-separated scan types (case-insensitive): SAST, Secrets, SCA, ContainerSCA (alias: ContainerScanning), CICD, IaC, DAST, PenTesting, License, CSPM",
+      "comma-separated scan types (case-insensitive): SAST, Secrets, SCA, ContainerSCA (aliases: ContainerScanning, Container), CICD, IaC, DAST, PenTesting, License, CSPM",
     )
     .option("-n, --limit <n>", "maximum number of findings to return (default: 100, max: 1000)", "100")
     .option("-d, --dast-targets <urls>", "comma-separated DAST target URLs")
+    .option("-i, --image <name>", "container image name, e.g. nginx (container scanning findings)")
+    .option("-t, --image-tag <tag>", "container image tag, e.g. 1.25.3 (requires --image)")
     .addOption(repositoryTokenOption())
     .addHelpText(
       "after",
@@ -231,6 +241,7 @@ Examples:
   $ codacy findings gh my-org --severities Critical,High
   $ codacy findings gh my-org my-repo --statuses Overdue,DueSoon
   $ codacy findings gh my-org --scan-types ContainerSCA   # container image findings only
+  $ codacy findings gh my-org --image nginx --image-tag 1.25.3
   $ codacy findings gh my-org my-repo --limit 500
   $ codacy findings gh my-org my-repo --output json`,
     )
@@ -242,6 +253,14 @@ Examples:
     ) {
       try {
         resolveAccountAuth(this, "Codacy does not accept repository tokens on the security findings endpoints");
+
+        // The API rejects a tag without an image name (ContainerImageFilter
+        // requires `name`). Refuse locally, before git auto-detection or any
+        // request.
+        const opts = this.opts();
+        if (opts.imageTag && !opts.image) {
+          throw new Error("--image-tag requires --image <name>.");
+        }
 
         const argCount = [providerArg, organizationArg, repositoryArg].filter(
           (v) => v !== undefined,
@@ -278,7 +297,6 @@ Examples:
           );
         }
 
-        const opts = this.opts();
         const format = getOutputFormat(this);
 
         const body: SearchSRMItems = {};
@@ -299,6 +317,11 @@ Examples:
           body.scanTypes = [...new Set(scanTypes.map(normalizeScanType))];
         const dastTargets = parseCommaList(opts.dastTargets);
         if (dastTargets) body.dastTargetUrls = dastTargets;
+        if (opts.image) {
+          body.containerImage = opts.imageTag
+            ? { name: opts.image, tag: opts.imageTag }
+            : { name: opts.image };
+        }
 
         const limit = Math.min(Math.max(parseInt(opts.limit, 10) || 100, 1), 1000);
 
@@ -352,6 +375,8 @@ Examples:
               "fixedVersion",
               "application",
               "affectedTargets",
+              "imageName",
+              "imageTag",
               "dependencyChains",
               "advisoryInformation.advisoryId",
               "advisoryInformation.vulnerableFunctions",
@@ -367,7 +392,7 @@ Examples:
         if (total > items.length || cursor) {
           printPaginationWarning(
             { cursor: "more", limit: items.length },
-            "Use --limit <n> (max 1000) to fetch more, or --severities, --statuses to filter.",
+            "Use --limit <n> (max 1000) to fetch more, or --severities, --statuses, --image to filter.",
           );
         }
       } catch (err) {

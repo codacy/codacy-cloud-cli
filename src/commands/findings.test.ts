@@ -777,6 +777,124 @@ describe("findings command", () => {
     mockExit.mockRestore();
   });
 
+  describe("container image filter", () => {
+    const containerFinding = {
+      ...mockFindings[0],
+      id: "finding-container",
+      scanType: "ContainerSCA",
+      imageName: "codacy/codacy-website",
+      imageTag: "1.25.3",
+    };
+
+    async function runFindings(...args: string[]) {
+      const program = createProgram();
+      await program.parseAsync(["node", "test", ...args]);
+    }
+
+    it("should send containerImage with name only when --image is given", async () => {
+      vi.mocked(SecurityService.searchSecurityItems).mockResolvedValue({
+        data: [],
+      } as any);
+
+      await runFindings("findings", "gh", "test-org", "--image", "nginx");
+
+      expect(SecurityService.searchSecurityItems).toHaveBeenCalledWith(
+        "gh",
+        "test-org",
+        undefined,
+        100,
+        "Status",
+        "asc",
+        {
+          statuses: ["Overdue", "OnTrack", "DueSoon"],
+          containerImage: { name: "nginx" },
+        },
+      );
+    });
+
+    it("should send containerImage with name and tag when both are given", async () => {
+      vi.mocked(SecurityService.searchSecurityItems).mockResolvedValue({
+        data: [],
+      } as any);
+
+      await runFindings(
+        "findings",
+        "gh",
+        "test-org",
+        "-T",
+        "container",
+        "-i",
+        "nginx",
+        "-t",
+        "1.25.3",
+      );
+
+      expect(SecurityService.searchSecurityItems).toHaveBeenCalledWith(
+        "gh",
+        "test-org",
+        undefined,
+        100,
+        "Status",
+        "asc",
+        {
+          statuses: ["Overdue", "OnTrack", "DueSoon"],
+          scanTypes: ["ContainerSCA"],
+          containerImage: { name: "nginx", tag: "1.25.3" },
+        },
+      );
+    });
+
+    it("should refuse --image-tag without --image before any request", async () => {
+      const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit called");
+      });
+
+      await expect(
+        runFindings("findings", "gh", "test-org", "--image-tag", "1.25.3"),
+      ).rejects.toThrow("process.exit called");
+
+      expect(console.error).toHaveBeenCalledWith(
+        expect.stringContaining("--image-tag requires --image"),
+      );
+      expect(SecurityService.searchSecurityItems).not.toHaveBeenCalled();
+      mockExit.mockRestore();
+    });
+
+    it("should show the scanned image as name:tag on the card", async () => {
+      vi.mocked(SecurityService.searchSecurityItems).mockResolvedValue({
+        data: [containerFinding],
+      } as any);
+
+      await runFindings("findings", "gh", "test-org");
+
+      expect(getAllOutput()).toContain("codacy/codacy-website:1.25.3");
+    });
+
+    it("should show the image name alone when the finding has no tag", async () => {
+      vi.mocked(SecurityService.searchSecurityItems).mockResolvedValue({
+        data: [{ ...containerFinding, imageTag: undefined }],
+      } as any);
+
+      await runFindings("findings", "gh", "test-org");
+
+      const output = getAllOutput();
+      expect(output).toContain("codacy/codacy-website");
+      expect(output).not.toContain("codacy/codacy-website:");
+    });
+
+    it("should include imageName and imageTag in JSON output", async () => {
+      vi.mocked(SecurityService.searchSecurityItems).mockResolvedValue({
+        data: [containerFinding],
+      } as any);
+
+      await runFindings("--output", "json", "findings", "gh", "test-org");
+
+      const json = JSON.parse(vi.mocked(console.log).mock.calls[0][0]);
+      expect(json.findings[0].imageName).toBe("codacy/codacy-website");
+      expect(json.findings[0].imageTag).toBe("1.25.3");
+    });
+  });
+
   describe("advisory information (vulnerable functions)", () => {
     const mockAdvisoryInformation = {
       advisoryId: "CVE-2026-27903",
