@@ -860,14 +860,34 @@ describe("findings command", () => {
       mockExit.mockRestore();
     });
 
-    it("should show the scanned image as name:tag on the card", async () => {
+    // The header line is the only card line that carries the finding id.
+    function headerLine(): string {
+      const calls = vi.mocked(console.log).mock.calls.map((c) => String(c[0] ?? ""));
+      return calls.find((l) => l.includes("finding-container")) ?? "";
+    }
+
+    it("should show image:tag instead of the repository on the header line", async () => {
       vi.mocked(SecurityService.searchSecurityItems).mockResolvedValue({
         data: [containerFinding],
       } as any);
 
       await runFindings("findings", "gh", "test-org");
 
-      expect(getAllOutput()).toContain("codacy/codacy-website:1.25.3");
+      const header = headerLine();
+      expect(header).toContain("codacy/codacy-website:1.25.3");
+      expect(header).not.toContain("my-repo");
+      // Shown once, not repeated on the status line.
+      expect(getAllOutput().split("codacy/codacy-website").length - 1).toBe(1);
+    });
+
+    it("should show the image in the single-repository view too", async () => {
+      vi.mocked(SecurityService.searchSecurityItems).mockResolvedValue({
+        data: [containerFinding],
+      } as any);
+
+      await runFindings("findings", "gh", "test-org", "test-repo");
+
+      expect(headerLine()).toContain("codacy/codacy-website:1.25.3");
     });
 
     it("should show the image name alone when the finding has no tag", async () => {
@@ -877,9 +897,23 @@ describe("findings command", () => {
 
       await runFindings("findings", "gh", "test-org");
 
-      const output = getAllOutput();
-      expect(output).toContain("codacy/codacy-website");
-      expect(output).not.toContain("codacy/codacy-website:");
+      const header = headerLine();
+      expect(header).toContain("codacy/codacy-website");
+      expect(header).not.toContain("codacy/codacy-website:");
+    });
+
+    it("should keep showing the repository for non-container findings", async () => {
+      vi.mocked(SecurityService.searchSecurityItems).mockResolvedValue({
+        data: [mockFindings[0]],
+      } as any);
+
+      await runFindings("findings", "gh", "test-org");
+
+      const header = vi
+        .mocked(console.log)
+        .mock.calls.map((c) => String(c[0] ?? ""))
+        .find((l) => l.includes(mockFindings[0].id));
+      expect(header).toContain("my-repo");
     });
 
     it("should include imageName and imageTag in JSON output", async () => {

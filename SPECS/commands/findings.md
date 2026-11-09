@@ -44,11 +44,11 @@ Card-style format:
 ```
 ────────────────────────────────────────
 
-{Priority colored} | {SecurityCategory} {ScanType} | {Optional: Likelihood} {Optional: EffortToFix} | {Optional: Repository}  {id dimmed}
+{Priority colored} | {SecurityCategory} {ScanType} | {Optional: Likelihood} {Optional: EffortToFix} | {Optional: Image or Repository}  {id dimmed}
 {Finding title}
 {Optional: affectedTargets}
 
-{Status} {DueAt} | {Optional: CVE or CWE} | {Optional: AffectedVersion → FixedVersion} | {Optional: Application} | {Optional: imageName[:imageTag]}
+{Status} {DueAt} | {Optional: CVE or CWE} | {Optional: AffectedVersion → FixedVersion} | {Optional: Application}
 {Optional: Dependency import chain (SCA findings with dependencyChains)}
 {Optional: Vulnerable functions: fn1, fn2 (+N more) — from item.advisoryInformation}
 
@@ -79,8 +79,8 @@ When an item carries `advisoryInformation` (`{advisoryId, vulnerableFunctions, p
 
 ### Container image (container scanning)
 
-When an item carries `imageName` (container scanning findings), the status line ends with the scanned image as `name:tag` (just `name` when `imageTag` is absent), dimmed and sanitized. `--output json` includes `imageName` and `imageTag` per item.
+When an item carries `imageName` (container scanning findings), the header line shows the scanned image as `name:tag` (just `name` when `imageTag` is absent), dimmed and sanitized, **in place of the repository**: the finding is about an image, not a repository. Unlike the repository, the image is shown in the single-repository view too, since the command's arguments don't imply it. The switch is on `imageName` being present, not on `scanType === "ContainerSCA"`. `--output json` includes `imageName` and `imageTag` per item.
 
 ## Tests
 
-File: `src/commands/findings.test.ts` — 35 tests.
+File: `src/commands/findings.test.ts` — 37 tests.

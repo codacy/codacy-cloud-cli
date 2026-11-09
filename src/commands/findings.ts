@@ -83,7 +83,7 @@ function normalizeScanType(input: string): string {
   );
 }
 
-// Line 1: Priority | SecurityCategory ScanType | Likelihood EffortToFix | Repository
+// Line 1: Priority | SecurityCategory ScanType | Likelihood EffortToFix | Repository or Image
 function buildFindingHeaderLine(item: SrmItem, showRepo: boolean): string {
   const pipe = ` ${ansis.dim("|")} `;
   const parts: string[] = [colorPriority(item.priority)];
@@ -101,7 +101,18 @@ function buildFindingHeaderLine(item: SrmItem, showRepo: boolean): string {
   ) as string[];
   if (penTestParts.length > 0) parts.push(penTestParts.join(" "));
 
-  if (showRepo && item.repository) parts.push(ansis.dim(sanitizeText(item.repository)));
+  // A container scanning finding is about an image, not a repository, so its
+  // image:tag takes the repository's slot. It is shown even in the
+  // single-repository view (where the repository is hidden as redundant),
+  // since the image is not implied by the command's arguments.
+  if (item.imageName) {
+    const image = item.imageTag
+      ? `${item.imageName}:${item.imageTag}`
+      : item.imageName;
+    parts.push(ansis.dim(sanitizeText(image)));
+  } else if (showRepo && item.repository) {
+    parts.push(ansis.dim(sanitizeText(item.repository)));
+  }
 
   const idLabel = ansis.hex("#555555")(item.id);
   return parts.join(pipe) + `  ${idLabel}`;
@@ -129,14 +140,6 @@ function buildFindingStatusLine(item: SrmItem, hasChains: boolean): string {
   }
 
   if (item.application) parts.push(ansis.dim(sanitizeText(item.application)));
-
-  // Container scanning findings: the scanned image, as name:tag.
-  if (item.imageName) {
-    const image = item.imageTag
-      ? `${item.imageName}:${item.imageTag}`
-      : item.imageName;
-    parts.push(ansis.dim(sanitizeText(image)));
-  }
 
   return parts.join(pipe);
 }
