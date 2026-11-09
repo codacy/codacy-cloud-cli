@@ -55,6 +55,12 @@ const SCAN_TYPE_NORMALIZE: Record<string, string> = {
   sast: "SAST",
   secrets: "Secrets",
   sca: "SCA",
+  // The API calls container image scanning "ContainerSCA"; the product UI
+  // calls it "Container scanning", so both spellings (and plain "container")
+  // map to the API value.
+  containersca: "ContainerSCA",
+  containerscanning: "ContainerSCA",
+  container: "ContainerSCA",
   cicd: "CICD",
   iac: "IaC",
   dast: "DAST",
@@ -210,7 +216,7 @@ export function registerFindingsCommand(program: Command) {
     )
     .option(
       "-T, --scan-types <types>",
-      "comma-separated scan types (case-insensitive): SAST, Secrets, SCA, CICD, IaC, DAST, PenTesting, License, CSPM",
+      "comma-separated scan types (case-insensitive): SAST, Secrets, SCA, ContainerSCA (alias: ContainerScanning), CICD, IaC, DAST, PenTesting, License, CSPM",
     )
     .option("-n, --limit <n>", "maximum number of findings to return (default: 100, max: 1000)", "100")
     .option("-d, --dast-targets <urls>", "comma-separated DAST target URLs")
@@ -224,6 +230,7 @@ Examples:
   $ codacy findings gh my-org                          # organization-wide findings
   $ codacy findings gh my-org --severities Critical,High
   $ codacy findings gh my-org my-repo --statuses Overdue,DueSoon
+  $ codacy findings gh my-org --scan-types ContainerSCA   # container image findings only
   $ codacy findings gh my-org my-repo --limit 500
   $ codacy findings gh my-org my-repo --output json`,
     )
@@ -286,7 +293,10 @@ Examples:
         const categories = parseCommaList(opts.categories);
         if (categories) body.categories = categories;
         const scanTypes = parseCommaList(opts.scanTypes);
-        if (scanTypes) body.scanTypes = scanTypes.map(normalizeScanType);
+        // De-duplicated: several aliases map to the same API value (e.g.
+        // ContainerScanning and ContainerSCA).
+        if (scanTypes)
+          body.scanTypes = [...new Set(scanTypes.map(normalizeScanType))];
         const dastTargets = parseCommaList(opts.dastTargets);
         if (dastTargets) body.dastTargetUrls = dastTargets;
 

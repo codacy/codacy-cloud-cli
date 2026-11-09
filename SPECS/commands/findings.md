@@ -28,7 +28,7 @@ codacy find gh my-org my-repo --output json
 | `--severities <list>` | `-s` | Comma-separated priority levels: Critical, High, Medium, Low |
 | `--statuses <list>` | `-S` | Comma-separated statuses: Overdue, OnTrack, DueSoon, ClosedOnTime, ClosedLate, Ignored |
 | `--categories <list>` | `-c` | Comma-separated security category names |
-| `--scan-types <list>` | `-T` | Comma-separated scan types: SAST, Secrets, SCA, CICD, IaC, DAST, PenTesting, License, CSPM |
+| `--scan-types <list>` | `-T` | Comma-separated scan types: SAST, Secrets, SCA, ContainerSCA (aliases: ContainerScanning, Container), CICD, IaC, DAST, PenTesting, License, CSPM. Case-insensitive; spaces, hyphens and underscores are ignored |
 | `--dast-targets <list>` | `-d` | Comma-separated DAST target URLs |
 
 Default status filter: `Overdue,OnTrack,DueSoon`.
@@ -75,4 +75,4 @@ When an item carries `advisoryInformation` (`{advisoryId, vulnerableFunctions, p
 
 ## Tests
 
-File: `src/commands/findings.test.ts` — 27 tests (24 + 3 for advisoryInformation).
+File: `src/commands/findings.test.ts` — 29 tests.

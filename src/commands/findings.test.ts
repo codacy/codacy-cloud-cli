@@ -376,6 +376,36 @@ describe("findings command", () => {
     );
   });
 
+  it("should map container scanning aliases to ContainerSCA and de-duplicate", async () => {
+    vi.mocked(SecurityService.searchSecurityItems).mockResolvedValue({
+      data: [],
+    } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "findings",
+      "gh",
+      "test-org",
+      "--scan-types",
+      "ContainerSCA,container-scanning,Container_Scanning,container",
+    ]);
+
+    expect(SecurityService.searchSecurityItems).toHaveBeenCalledWith(
+      "gh",
+      "test-org",
+      undefined,
+      100,
+      "Status",
+      "asc",
+      {
+        statuses: ["Overdue", "OnTrack", "DueSoon"],
+        scanTypes: ["ContainerSCA"],
+      },
+    );
+  });
+
   it("should preserve the API sort order (no client-side resorting)", async () => {
     // API returns Medium first, Critical second — client must not re-sort
     const apiOrder = [mockFindings[1], mockFindings[0]]; // Medium, then Critical
