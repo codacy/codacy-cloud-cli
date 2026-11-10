@@ -100,7 +100,7 @@ none. `issues -T <name>` and the `issues -O` noise suggestions rely on this.
 | `repository` (dashboard) | ⚠️ partial — pull requests + coverage reports skipped |
 | `repository --reanalyze` / `--reanalyze-and-wait` | ✅ |
 | `repository --add/--remove/--follow/--unfollow/--link-standard/--unlink-standard` | ❌ refused |
-| `info`, `repositories`, `ls`, `directories`, `pull-request`, `pull-requests`, `issue`, `findings`, `finding` | ❌ refused |
+| `info`, `repositories`, `ls`, `file`, `directories`, `pull-request`, `pull-requests`, `issue`, `findings`, `finding` | ❌ refused |
 | `images`, `image` (all modes) | ❌ refused — organization-level SBOM operations, none whitelisted |
 | `login`, `logout` | Warn that the flag is ignored |
 

@@ -59,7 +59,7 @@ Codacy accepts repository tokens on a **limited set of repository-scoped operati
 | `tools`, `tool`, `patterns`, `pattern` | `info`, `repositories` |
 | `issues` (including `--overview`) | `issues --ignore`, `issues --ignored`, `issue` |
 | `repository`, `repository --reanalyze` | `repository --add`/`--remove`/`--follow`/`--unfollow`/`--link-standard`/`--unlink-standard` |
-| | `pull-request`, `pull-requests`, `ls`, `directories`, `findings`, `finding` |
+| | `pull-request`, `pull-requests`, `ls`, `file`, `directories`, `findings`, `finding` |
 | | `images`, `image` |
 
 `codacy repository` works, but omits the pull request section — that endpoint doesn't accept repository tokens. In `--output json` it marks it as `"unavailable": ["pullRequests"]`, so a consumer can tell "none" apart from "couldn't look". Everything else, including the coverage status, is available.
@@ -144,6 +144,7 @@ Supported providers: GitHub (`gh`), GitLab (`gl`), Bitbucket (`bb`).
 | `repositories <provider> <org>` | List repositories for an organization |
 | `repository [provider] [org] [repo]` | Show metrics for a repository, or add/remove/follow/unfollow/reanalyze it (optionally waiting for results) |
 | `ls [provider] [org] [repo]` | List (or search) directories and files at a path in a repository, with quality metrics and sorting |
+| `file [provider] [org] [repo] <path>` | Show a file's metrics, issues, clones, and source code with coverage |
 | `directories [provider] [org] [repo]` | List directories at a path in a repository (optionally one level of sub-directories), with quality metrics |
 | `issues [provider] [org] [repo]` | Search issues in a repository with filters |
 | `issue [provider] [org] [repo] <id>` | Show details for a single issue, or ignore/unignore it |

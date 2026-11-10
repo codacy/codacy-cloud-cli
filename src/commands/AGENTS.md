@@ -252,6 +252,38 @@ also pull each folder's immediate sub-folders (one extra level).
   form).
 - JSON: `ls` → `{ path, directories, files }`; `directories` → `{ path, directories: [{…, children?}] }`, each item projected via `pickDeep`.
 
+## file command (`file.ts`)
+
+Single-file view: summary, issues, clones, source with coverage. Spec in
+[`SPECS/commands/file.md`](../../SPECS/commands/file.md).
+
+- **Path → `fileId` via the parent folder.** Every file endpoint takes a
+  `fileId`, which only `listFiles` returns. The command lists the parent folder
+  (non-recursive, `""` for the root) and matches `path` exactly. Don't switch to
+  `search`: it matches substrings, so `app.ts` would also hit `myapp.ts`.
+- **Path is cwd-relative only when the repository is auto-detected** (one
+  positional), so `codacy file ../x.ts` behaves like a local path; with an
+  explicit repository it is repo-relative.
+- **Source is pinned to `info.file.commitSha`.** The content endpoint defaults to
+  the branch HEAD, which can be ahead of the last analysis, and then issue and
+  coverage line numbers would point at the wrong lines.
+- **Coverage and source are optional.** `getFileCoverage` errors on repositories
+  without coverage; that turns into "no gutter", not a failure. A failed content
+  fetch (e.g. over 1MB → 413) prints `Source not available (…)` and the rest of
+  the view still renders.
+- **Issues and clones fetch every page**, like `ls`. The view is one file, and
+  the lists are bounded by it, so no pagination warning is shown.
+- **Issues go inline when there is source.** `renderSource` prints each issue
+  under its line via `renderInlineIssue` (compact card, `↳` in the line-number
+  column). `issuesNotInline` decides what the top section lists: everything
+  without source, otherwise only issues whose line wasn't fetched (outside
+  `--lines`) — so `--lines` never hides an issue. Those, and the no-source list,
+  use the full `printIssueCard`.
+- **JSON has no source code.** `--output json` skips the content request and
+  prints `{ file, issues, clones, coverage }`; per-line data is
+  `coverage.lines` (`{ line, hits }`, coverable lines only). The issue
+  projection matches `issues`'.
+
 ## Shared Formatting Utilities (`utils/formatting.ts`)
 
 Several helpers are shared between `repository.ts` and `pull-request.ts` via `utils/formatting.ts`:
