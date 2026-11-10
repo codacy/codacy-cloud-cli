@@ -236,7 +236,7 @@ export function parseImageFilter(
     const refTag = name.slice(colon + 1);
     name = name.slice(0, colon);
     if (!name || !refTag) {
-      throw new Error(`--image expects name or name:tag (got "${image!.trim()}").`);
+      throw new Error(`--image expects name or name:tag (got "${image?.trim()}").`);
     }
     if (tag && tag !== refTag) {
       throw new Error(

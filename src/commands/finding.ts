@@ -17,7 +17,6 @@ import {
 } from "../utils/formatting";
 import { sanitizeText } from "../utils/sanitize";
 import { SecurityService } from "../api/client/services/SecurityService";
-import { IgnoreSRMItemBody } from "../api/client/models/IgnoreSRMItemBody";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 import { ToolsService } from "../api/client/services/ToolsService";
 import { FileService } from "../api/client/services/FileService";

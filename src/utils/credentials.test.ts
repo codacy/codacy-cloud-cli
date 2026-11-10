@@ -54,6 +54,14 @@ describe("credentials", () => {
       expect(parsed).toHaveProperty("encrypted");
     });
 
+    it("should write a full 16-byte auth tag that decryption accepts", () => {
+      const encrypted = encryptToken("test-token");
+      const parsed = JSON.parse(encrypted);
+      // decryptToken rejects anything shorter, so the writer must emit 16 bytes
+      expect(Buffer.from(parsed.authTag, "hex")).toHaveLength(16);
+      expect(decryptToken(encrypted)).toBe("test-token");
+    });
+
     it("should produce different ciphertexts for the same token (random salt/iv)", () => {
       const token = "same-token";
       const a = encryptToken(token);
@@ -68,6 +76,15 @@ describe("credentials", () => {
       const encrypted = encryptToken("my-secret");
       const parsed = JSON.parse(encrypted);
       parsed.encrypted = "deadbeef";
+      expect(() => decryptToken(JSON.stringify(parsed))).toThrow();
+    });
+
+    it("should reject a truncated auth tag", () => {
+      // A prefix of a valid GCM tag still verifies unless the tag length is
+      // pinned, so this would decrypt successfully without authTagLength.
+      const encrypted = encryptToken("my-secret");
+      const parsed = JSON.parse(encrypted);
+      parsed.authTag = parsed.authTag.slice(0, 8);
       expect(() => decryptToken(JSON.stringify(parsed))).toThrow();
     });
 

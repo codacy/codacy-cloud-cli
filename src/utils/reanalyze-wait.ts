@@ -33,8 +33,8 @@ export const PATTERN_LIMIT = 20;
  * resolver (`vi.spyOn(timers, "sleep").mockResolvedValue()`).
  */
 export const timers = {
-  sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+  async sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => void setTimeout(resolve, ms));
   },
 };
 

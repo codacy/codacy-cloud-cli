@@ -550,7 +550,7 @@ export function formatRepoCoverageCell(
 function hasCoverageValue(coverage: Coverage | undefined): boolean {
   return (
     coverage?.coveragePercentage !== undefined &&
-    coverage?.coveragePercentage !== null
+    coverage.coveragePercentage !== null
   );
 }
 
@@ -703,8 +703,8 @@ export function formatDelta(
 export function buildGateStatus(pr: PullRequestWithAnalysis): GateStatusMap {
   const status: GateStatusMap = {};
   const reasons: AnalysisResultReason[] = [
-    ...(pr.quality?.resultReasons || []),
-    ...(pr.coverage?.resultReasons || []),
+    ...(pr.quality?.resultReasons ?? []),
+    ...(pr.coverage?.resultReasons ?? []),
   ];
   for (const r of reasons) {
     const gate = r.gate.toLowerCase();
@@ -1249,9 +1249,7 @@ export async function resolveToolUuids(
       continue;
     }
 
-    if (!allTools) {
-      allTools = await fetchTools();
-    }
+    allTools ??= await fetchTools();
 
     const lower = input.toLowerCase();
 
@@ -1274,7 +1272,7 @@ export async function resolveToolUuids(
       return (
         t.name.toLowerCase().includes(lower) ||
         t.shortName.toLowerCase().includes(lower) ||
-        (t.prefix && t.prefix.toLowerCase().includes(lower))
+        (t.prefix?.toLowerCase().includes(lower))
       );
     });
 

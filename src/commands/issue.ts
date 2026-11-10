@@ -97,7 +97,7 @@ Examples:
             encodeURIComponent(issue.filePath),
             startLine,
             endLine,
-          ).catch((e) => {
+          ).catch((e: unknown) => {
             console.error(ansis.red(`File path: ${sanitizeText(issue.filePath)}`));
             console.error(ansis.red(`Error fetching file content: ${e}`));
             return null;

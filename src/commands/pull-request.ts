@@ -18,7 +18,6 @@ import {
   truncate,
   buildGateStatus,
   formatStandards,
-  colorByGate,
   colorSeverity,
   formatDelta,
   formatPrCoverage,
@@ -207,8 +206,8 @@ function printAbout(
 function buildGateHints(pr: PullRequestWithAnalysis): Record<string, string> {
   const hints: Record<string, string> = {};
   const reasons: AnalysisResultReason[] = [
-    ...(pr.quality?.resultReasons || []),
-    ...(pr.coverage?.resultReasons || []),
+    ...(pr.quality?.resultReasons ?? []),
+    ...(pr.coverage?.resultReasons ?? []),
   ];
   for (const r of reasons) {
     const key = gateKeyFromReason(r.gate);
@@ -325,7 +324,7 @@ function printFilesList(files: FileDeltaAnalysis[]): void {
           q.deltaFixedIssues > 0 ||
           q.deltaComplexity ||
           q.deltaClonesCount)) ||
-      (c && c.deltaCoverage)
+      (c?.deltaCoverage)
     );
   });
 
@@ -573,7 +572,7 @@ function printAnnotatedDiff(
     if (!issuesByFile.has(fp)) issuesByFile.set(fp, new Map());
     const m = issuesByFile.get(fp)!;
     if (!m.has(ln)) m.set(ln, []);
-    m.get(ln)!.push(tagged);
+    m.get(ln)?.push(tagged);
   }
 
   const { files } = parseDiff(diffText, true);
@@ -1267,7 +1266,7 @@ Examples:
             pullRequest: prData,
             newIssues: newIssues.data,
             potentialIssues: potentialIssues.data,
-            files: filesData.data || [],
+            files: filesData.data ?? [],
           }, [
             // About
             "pullRequest.pullRequest.repository",
@@ -1325,7 +1324,7 @@ Examples:
         printDiffCoverageSummary(fileCoverageList);
 
         // Files
-        printFilesList(filesData.data || []);
+        printFilesList(filesData.data ?? []);
         printPaginationWarning(
           filesData.pagination,
           "Not all files are shown.",

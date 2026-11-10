@@ -1,4 +1,4 @@
-import gitDiffParser, { File } from "gitdiff-parser";
+import gitDiffParser from "gitdiff-parser";
 import { sortBy } from "lodash";
 
 // TODO: remove this when the API has the correct diff for commits coming from Git
