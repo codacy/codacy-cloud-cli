@@ -264,11 +264,17 @@ Single-file view: summary, issues, clones, source with coverage. Spec in
 - **Path is cwd-relative only when the repository is auto-detected** (one
   positional), so `codacy file ../x.ts` behaves like a local path; with an
   explicit repository it is repo-relative.
+- **Pass the raw path to `getFileContent`.** `OpenAPI.ENCODE_PATH`
+  (`encodePathSegment`, set in `index.ts`) already escapes it once, `/`
+  included. `issue`/`finding`/`pull-request` still pre-encode with
+  `encodeURIComponent`; the API happens to accept the double-encoded form for
+  ordinary paths, but single encoding is the correct one.
 - **Source is pinned to `info.file.commitSha`.** The content endpoint defaults to
   the branch HEAD, which can be ahead of the last analysis, and then issue and
   coverage line numbers would point at the wrong lines.
-- **Coverage and source are optional.** `getFileCoverage` errors on repositories
-  without coverage; that turns into "no gutter", not a failure. A failed content
+- **Coverage and source are optional.** `getFileCoverage` answers **404** for a
+  file without coverage data; only that becomes "no gutter". Any other error
+  propagates, so an outage isn't reported as "no coverage". A failed content
   fetch (e.g. over 1MB → 413) prints `Source not available (…)` and the rest of
   the view still renders.
 - **Issues and clones fetch every page**, like `ls`. The view is one file, and

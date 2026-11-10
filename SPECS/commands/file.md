@@ -27,7 +27,7 @@ Alias: `fl`.
 | Metadata + metrics | `RepositoryService.getFileWithAnalysis(fileId)` | `file`, `quality`, `coverage` |
 | Issues | `RepositoryService.getFileIssues(fileId)` | All pages |
 | Clones | `RepositoryService.getFileClones(fileId)` | All pages |
-| Line coverage | `RepositoryService.getFileCoverage(fileId)` | `{line, hits}[]`; errors are treated as "no coverage" |
+| Line coverage | `RepositoryService.getFileCoverage(fileId)` | `{line, hits}[]`; a 404 (no coverage data for the file) means "no coverage", any other error fails the command |
 | Source | `FileService.getFileContent(path, from, to, commitSha)` | Pinned to the analysed commit; skipped with `--no-source` and with `--output json` |
 
 None of these are on the repository-token whitelist, so the command requires an account token (`resolveAccountAuth`).
@@ -68,4 +68,4 @@ All repository-derived values (paths, content, clone paths) go through `sanitize
 
 ## Tests
 
-`src/commands/file.test.ts` (23 tests) + a refusal case in `repository-token-refusals.test.ts`.
+`src/commands/file.test.ts` (26 tests) + a refusal case in `repository-token-refusals.test.ts`.

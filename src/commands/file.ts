@@ -30,6 +30,7 @@ import { CommitIssue } from "../api/client/models/CommitIssue";
 import { FileClone } from "../api/client/models/FileClone";
 import { FileInformationWithAnalysis } from "../api/client/models/FileInformationWithAnalysis";
 import { PaginationInfo } from "../api/client/models/PaginationInfo";
+import { ApiError } from "../api/client/core/ApiError";
 
 /**
  * `codacy file` — the CLI counterpart of the file view in the Codacy UI:
@@ -60,7 +61,7 @@ export function parseLineRange(value: string): LineRange {
   const match = /^\s*(\d+)\s*(?:(-)\s*(\d*)\s*)?$/.exec(value);
   if (!match) {
     throw new Error(
-      `Invalid --lines value "${value}". Use <from>-<to>, <from>- or <line> (e.g. 40-120).`,
+      `Invalid --lines value "${value}". Use FROM-TO, FROM- or a single LINE (e.g. 40-120, 40-, 40).`,
     );
   }
   const from = parseInt(match[1], 10);
@@ -68,7 +69,7 @@ export function parseLineRange(value: string): LineRange {
   const to = match[3] ? parseInt(match[3], 10) : hasDash ? undefined : from;
   if (from < 1 || (to !== undefined && to < from)) {
     throw new Error(
-      `Invalid --lines value "${value}": lines start at 1 and <from> must not exceed <to>.`,
+      `Invalid --lines value "${value}": lines start at 1 and the start must not exceed the end.`,
     );
   }
   return { from, to };
@@ -132,6 +133,12 @@ async function resolveFileId(
   return match.fileId;
 }
 
+interface RepoRef {
+  provider: string;
+  organization: string;
+  repository: string;
+}
+
 interface FileData {
   info: FileInformationWithAnalysis;
   issues: CommitIssue[];
@@ -144,9 +151,7 @@ interface FileData {
 }
 
 async function fetchFileData(
-  provider: string,
-  organization: string,
-  repository: string,
+  { provider, organization, repository }: RepoRef,
   filePath: string,
   fileId: number,
   fetchSource: boolean,
@@ -160,9 +165,13 @@ async function fetchFileData(
     fetchAllPages((cursor) =>
       RepositoryService.getFileClones(provider, organization, repository, fileId, cursor, 100),
     ),
-    // Coverage is optional: a repository without coverage reports errors here.
+    // Coverage is optional: a file without coverage data answers 404 ("No
+    // coverage data for file …"). Any other failure is a real error.
     RepositoryService.getFileCoverage(provider, organization, repository, fileId).catch(
-      () => null,
+      (err: unknown) => {
+        if (err instanceof ApiError && err.status === 404) return null;
+        throw err;
+      },
     ),
   ]);
 
@@ -176,11 +185,13 @@ async function fetchFileData(
   if (fetchSource) {
     try {
       // Pinned to the analysed commit so line numbers match issues and coverage.
+      // The raw path is passed: the client's global encoder (`encodePathSegment`,
+      // installed in index.ts) escapes it once, `/` included.
       const content = await FileService.getFileContent(
         provider,
         organization,
         repository,
-        encodeURIComponent(filePath),
+        filePath,
         range.from,
         range.to,
         info.file.commitSha,
@@ -258,7 +269,9 @@ export function renderSource(
   coverage: Map<number, number> | null,
   issues: CommitIssue[] = [],
 ): string[] {
-  const width = String(Math.max(0, ...lines.map((l) => l.number))).length;
+  // A reduce, not Math.max(...lines): spreading ~150k lines overflows the stack.
+  const maxLine = lines.reduce((max, l) => (l.number > max ? l.number : max), 0);
+  const width = String(maxLine).length;
   const byLine = new Map<number, CommitIssue[]>();
   for (const issue of issues) {
     byLine.set(issue.lineNumber, [...(byLine.get(issue.lineNumber) ?? []), issue]);
@@ -458,6 +471,14 @@ export function fileJson(data: FileData): Record<string, unknown> {
   };
 }
 
+/** The human-readable view: summary, issues, clones, source. */
+function printFileView(data: FileData, options: FileOptions): void {
+  printSummary(data, options.branch);
+  printIssues(data);
+  printClones(data.clones, data.info.file.fileId, data.info.file.path);
+  if (options.source) printSource(data);
+}
+
 export function registerFileCommand(program: Command) {
   program
     .command("file")
@@ -536,29 +557,21 @@ Examples:
             options.branch,
             filePath,
           );
+          // JSON carries no source code, so the content is never fetched for it.
+          const fetchSource = options.source && format !== "json";
           data = await fetchFileData(
-            provider,
-            organization,
-            repository,
+            { provider, organization, repository },
             filePath,
             fileId,
-            // JSON carries no source code, so the content is never fetched for it.
-            options.source && format !== "json",
+            fetchSource,
             range,
           );
         } finally {
           spinner.stop();
         }
 
-        if (format === "json") {
-          printJson(fileJson(data));
-          return;
-        }
-
-        printSummary(data, options.branch);
-        printIssues(data);
-        printClones(data.clones, data.info.file.fileId, data.info.file.path);
-        if (options.source) printSource(data);
+        if (format === "json") printJson(fileJson(data));
+        else printFileView(data, options);
       } catch (err) {
         handleError(err);
       }

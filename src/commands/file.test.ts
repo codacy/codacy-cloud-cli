@@ -11,6 +11,16 @@ import { RepositoryService } from "../api/client/services/RepositoryService";
 import { FileService } from "../api/client/services/FileService";
 import { consoleOutput } from "../test-support";
 import { getCwdRepoRelativePath } from "../utils/repo-tree";
+import { ApiError } from "../api/client/core/ApiError";
+import { encodePathSegment } from "../utils/api-path";
+
+function apiError(status: number, statusText: string): ApiError {
+  return new ApiError(
+    { method: "GET", url: "/x" } as any,
+    { url: "/x", ok: false, status, statusText, body: { message: statusText } } as any,
+    statusText,
+  );
+}
 
 vi.mock("../api/client/services/RepositoryService");
 vi.mock("../api/client/services/FileService");
@@ -184,6 +194,13 @@ describe("renderSource", () => {
     expect(out).not.toContain("\x1b[2J");
   });
 
+  it("handles a very long file without overflowing Math.max", () => {
+    const many = Array.from({ length: 200_000 }, (_, i) => ({ number: i + 1, content: "x" }));
+    const out = renderSource(many, null);
+    expect(out).toHaveLength(200_000);
+    expect(out[0]).toMatch(/^ {5}1 /);
+  });
+
   it("neutralizes control characters in file content", () => {
     const [line] = renderSource([{ number: 1, content: "evil\x1b]52;c;aGk=\x07" }], null);
     expect(line).not.toContain("\x1b]52");
@@ -298,7 +315,7 @@ describe("file command", () => {
       "gh",
       "org",
       "repo",
-      encodeURIComponent(FILE_PATH),
+      FILE_PATH,
       2,
       3,
       "abcdef1234567890",
@@ -326,11 +343,31 @@ describe("file command", () => {
   });
 
   it("shows the source without a gutter legend when there is no coverage", async () => {
-    mockApi({ coverage: new Error("Not Found") });
+    mockApi({ coverage: apiError(404, "Not Found") });
     await run("gh", "org", "repo", FILE_PATH);
     const out = consoleOutput();
     expect(out).not.toContain("not covered");
     expect(out).toMatch(/1   │ const a = 1;/);
+  });
+
+  it("surfaces a coverage failure other than 404 instead of hiding it", async () => {
+    mockApi({ coverage: apiError(500, "Internal Server Error") });
+    const exit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit called");
+    });
+    await expect(run("gh", "org", "repo", FILE_PATH)).rejects.toThrow("process.exit called");
+    expect(vi.mocked(console.error).mock.calls.flat().join("\n")).toContain("Error:");
+    exit.mockRestore();
+  });
+
+  it("passes the raw path so the client's encoder escapes it exactly once", async () => {
+    const odd = "src/my dir/file #1%.ts";
+    mockApi({ files: [{ fileId: FILE_ID, path: odd }] });
+    await run("gh", "org", "repo", odd);
+    const sent = vi.mocked(FileService.getFileContent).mock.calls[0][3];
+    expect(sent).toBe(odd);
+    // What the generated client puts in the URL (OpenAPI.ENCODE_PATH, set in index.ts)
+    expect(encodePathSegment(sent)).toBe("src%2Fmy%20dir%2Ffile%20%231%25.ts");
   });
 
   it("notes when the source cannot be fetched", async () => {
@@ -386,7 +423,7 @@ describe("file command", () => {
   });
 
   it("prints coverage as null in JSON when the file has none", async () => {
-    mockApi({ coverage: new Error("Not Found") });
+    mockApi({ coverage: apiError(404, "Not Found") });
     vi.mocked(RepositoryService.getFileWithAnalysis).mockResolvedValue({
       ...fileInfo,
       coverage: undefined,
