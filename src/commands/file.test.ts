@@ -10,14 +10,14 @@ import {
 import { RepositoryService } from "../api/client/services/RepositoryService";
 import { FileService } from "../api/client/services/FileService";
 import { consoleOutput } from "../test-support";
-import { getCwdRepoRelativePath } from "../utils/repo-tree";
+import { getCwdRepoRelativePath, getGitRepoRoot } from "../utils/repo-tree";
 import { ApiError } from "../api/client/core/ApiError";
 import { encodePathSegment } from "../utils/api-path";
 
-function apiError(status: number, statusText: string): ApiError {
+function apiError(status: number, statusText: string, message = statusText): ApiError {
   return new ApiError(
     { method: "GET", url: "/x" } as any,
-    { url: "/x", ok: false, status, statusText, body: { message: statusText } } as any,
+    { url: "/x", ok: false, status, statusText, body: { message } } as any,
     statusText,
   );
 }
@@ -34,7 +34,11 @@ vi.mock("../utils/git-remote", () => ({
 }));
 vi.mock("../utils/repo-tree", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../utils/repo-tree")>();
-  return { ...actual, getCwdRepoRelativePath: vi.fn(() => "") };
+  return {
+    ...actual,
+    getCwdRepoRelativePath: vi.fn(() => ""),
+    getGitRepoRoot: vi.fn(() => "/home/me/repo"),
+  };
 });
 vi.spyOn(console, "log").mockImplementation(() => {});
 vi.spyOn(console, "error").mockImplementation(() => {});
@@ -161,6 +165,20 @@ describe("resolveFilePath", () => {
   it("joins the cwd when the repository is auto-detected", () => {
     vi.mocked(getCwdRepoRelativePath).mockReturnValueOnce("src/utils");
     expect(resolveFilePath("../app.ts", true)).toBe("src/app.ts");
+  });
+
+  it("resolves an absolute path against the git root", () => {
+    expect(resolveFilePath("/home/me/repo/src/a.ts", true)).toBe("src/a.ts");
+    expect(getGitRepoRoot).toHaveBeenCalled();
+    expect(getCwdRepoRelativePath).not.toHaveBeenCalled();
+  });
+
+  it("refuses a path outside the repository", () => {
+    vi.mocked(getCwdRepoRelativePath).mockReturnValueOnce("src");
+    expect(() => resolveFilePath("../../x.ts", true)).toThrow(
+      "Path '../../x.ts' is outside the repository.",
+    );
+    expect(() => resolveFilePath("/etc/passwd", true)).toThrow("outside the repository");
   });
 
   it("treats the path as repo-relative when the repository is explicit", () => {
@@ -370,11 +388,11 @@ describe("file command", () => {
     expect(encodePathSegment(sent)).toBe("src%2Fmy%20dir%2Ffile%20%231%25.ts");
   });
 
-  it("notes when the source cannot be fetched", async () => {
-    mockApi({ content: new Error("Payload Too Large") });
+  it("notes when the source cannot be fetched, with the server's reason", async () => {
+    mockApi({ content: apiError(413, "Payload Too Large", "File is too large to display") });
     await run("gh", "org", "repo", FILE_PATH);
     const out = consoleOutput();
-    expect(out).toContain("Source not available (Payload Too Large)");
+    expect(out).toContain("Source not available (File is too large to display)");
     // No source → the issues are listed at the top as full cards
     expect(out).toContain("Issues — Found 1 issue");
     expect(out).toContain(`${FILE_PATH}:2`);
