@@ -13,6 +13,7 @@ import { Command } from "commander";
 import { registerInfoCommand } from "./info";
 import { registerRepositoriesCommand } from "./repositories";
 import { registerLsCommand } from "./ls";
+import { registerFileCommand } from "./file";
 import { registerDirectoriesCommand } from "./directories";
 import { registerPullRequestCommand } from "./pull-request";
 import { registerPullRequestsCommand } from "./pull-requests";
@@ -67,6 +68,12 @@ const ACCOUNT_ONLY_COMMANDS = [
     register: registerLsCommand,
     argv: ["ls"],
     neverCalled: () => RepositoryService.listDirectories,
+  },
+  {
+    name: "file",
+    register: registerFileCommand,
+    argv: ["file", "src/index.ts"],
+    neverCalled: () => RepositoryService.listFiles,
   },
   {
     name: "directories",
