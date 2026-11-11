@@ -9,7 +9,7 @@ The CLI counterpart of the Codacy UI's file view for a single file: a summary of
 ## Usage
 
 ```
-codacy file src/index.ts                          # auto-detect repo; path relative to cwd
+codacy file src/index.ts                          # auto-detect repo; path relative to cwd (or absolute; must be inside the repo)
 codacy file gh my-org my-repo src/index.ts        # explicit repo; path relative to repo root
 codacy file src/index.ts --lines 40-120
 codacy file src/index.ts --no-source
@@ -47,7 +47,7 @@ None of these are on the repository-token whitelist, so the command requires an 
    - **With source**, each issue is printed **inline** under its line as a compact card (`↳ • Severity | Category  #id`, the message, a false-positive note / dependency chain when present, a separator); no file path or line text, since the line is right above. A top section **Issues outside the shown lines — Found N issues** lists, as full `printIssueCard` cards, only the issues whose line isn't among the fetched lines (outside `--lines`); it is omitted when there are none.
    - **Without source** (`--no-source`, or the content request failed), **Issues — Found N issues** lists every issue as a full `printIssueCard`, ordered by line. `No issues.` when empty.
 3. **Clones — Found N clones**: table of `Lines` (the block in this file) and `Also in` (`path:from-to` per other occurrence, including a second block in the same file), ordered by line.
-4. **Source** (with issues inline, see 2): `NNN ▌ │ content`. The gutter bar is green for covered lines (`hits > 0`), red for uncovered (`hits = 0`), blank for lines that can't be covered or when the file has no coverage. A legend line is printed only when there is coverage. `Source not available (<reason>)` if the content request fails (e.g. over 1MB).
+4. **Source** (with issues inline, see 2): `NNN ▌ │ content`. The gutter bar is green for covered lines (`hits > 0`), red for uncovered (`hits = 0`), blank for lines that can't be covered or when the file has no coverage. A legend line is printed only when there is coverage. `Source not available (<reason>)` if the content request fails (e.g. over 1MB); the reason is the server's message.
 
 All repository-derived values (paths, content, clone paths) go through `sanitizeText`.
 
@@ -68,4 +68,4 @@ All repository-derived values (paths, content, clone paths) go through `sanitize
 
 ## Tests
 
-`src/commands/file.test.ts` (26 tests) + a refusal case in `repository-token-refusals.test.ts`.
+`src/commands/file.test.ts` (28 tests) + a refusal case in `repository-token-refusals.test.ts`.

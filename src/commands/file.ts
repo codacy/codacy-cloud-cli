@@ -4,13 +4,14 @@ import ora from "ora";
 import ansis from "ansis";
 import pluralize from "pluralize";
 import { repositoryTokenOption, resolveAccountAuth } from "../utils/auth";
-import { handleError } from "../utils/error";
+import { errorReason, handleError } from "../utils/error";
 import { createTable, getOutputFormat, pickDeep, printJson } from "../utils/output";
 import { sanitizeText } from "../utils/sanitize";
 import { resolveRepoArgs } from "../utils/resolve-repo-args";
 import {
   fetchAllFiles,
   getCwdRepoRelativePath,
+  getGitRepoRoot,
   normalizeRepoPath,
 } from "../utils/repo-tree";
 import {
@@ -77,13 +78,25 @@ export function parseLineRange(value: string): LineRange {
 
 /**
  * Turn the user's path argument into a repository-relative path. With an
- * auto-detected repository the path is relative to the current directory (like
- * a local file path); with an explicit repository it is relative to the root.
+ * auto-detected repository the path is a local one: relative to the current
+ * directory, or absolute (what shell completion and editors hand over), which is
+ * resolved against the git root. With an explicit repository it is relative to
+ * the repository root. A local path that lands outside the repository is
+ * refused before any request is made.
  */
 export function resolveFilePath(input: string, autoDetected: boolean): string {
-  const joined = autoDetected
-    ? path.posix.join(getCwdRepoRelativePath(), input.trim())
-    : input;
+  if (!autoDetected) return normalizeRepoPath(input);
+  const trimmed = input.trim();
+  let joined: string;
+  if (path.isAbsolute(trimmed)) {
+    const root = getGitRepoRoot();
+    joined = root ? path.relative(root, trimmed).split(path.sep).join("/") : "..";
+  } else {
+    joined = path.posix.join(getCwdRepoRelativePath(), trimmed);
+  }
+  if (joined === ".." || joined.startsWith("../")) {
+    throw new Error(`Path '${trimmed}' is outside the repository.`);
+  }
   return normalizeRepoPath(joined);
 }
 
@@ -198,7 +211,9 @@ async function fetchFileData(
       );
       source = content.data;
     } catch (err) {
-      sourceError = err instanceof Error ? err.message : String(err);
+      // errorReason, not err.message: for an ApiError the latter is the generated
+      // client's static status name, which hides the server's explanation.
+      sourceError = errorReason(err);
     }
   }
 

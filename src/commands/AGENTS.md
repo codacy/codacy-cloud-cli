@@ -262,8 +262,10 @@ Single-file view: summary, issues, clones, source with coverage. Spec in
   (non-recursive, `""` for the root) and matches `path` exactly. Don't switch to
   `search`: it matches substrings, so `app.ts` would also hit `myapp.ts`.
 - **Path is cwd-relative only when the repository is auto-detected** (one
-  positional), so `codacy file ../x.ts` behaves like a local path; with an
-  explicit repository it is repo-relative.
+  positional), so `codacy file ../x.ts` behaves like a local path. An absolute
+  path (shell completion, editors) is resolved against the git root, and a local
+  path that lands outside the repository is refused before any request. With an
+  explicit repository the path is repo-relative.
 - **Pass the raw path to `getFileContent`.** `OpenAPI.ENCODE_PATH`
   (`encodePathSegment`, set in `index.ts`) already escapes it once, `/`
   included. `issue`/`finding`/`pull-request` still pre-encode with
@@ -275,8 +277,9 @@ Single-file view: summary, issues, clones, source with coverage. Spec in
 - **Coverage and source are optional.** `getFileCoverage` answers **404** for a
   file without coverage data; only that becomes "no gutter". Any other error
   propagates, so an outage isn't reported as "no coverage". A failed content
-  fetch (e.g. over 1MB → 413) prints `Source not available (…)` and the rest of
-  the view still renders.
+  fetch (e.g. over 1MB → 413) prints `Source not available (<reason>)`, with the
+  reason from `errorReason(err)` (the server's message, not the client's static
+  status name), and the rest of the view still renders.
 - **Issues and clones fetch every page**, like `ls`. The view is one file, and
   the lists are bounded by it, so no pagination warning is shown.
 - **Issues go inline when there is source.** `renderSource` prints each issue
