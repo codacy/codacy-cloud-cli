@@ -1,5 +1,19 @@
 # @codacy/codacy-cloud-cli
 
+## 1.15.0
+
+### Minor Changes
+
+- [#64](https://github.com/codacy/codacy-cloud-cli/pull/64) [`d4490e4`](https://github.com/codacy/codacy-cloud-cli/commit/d4490e438f4def472371aa32892792d9b7502fcd) Thanks [@alerizzo](https://github.com/alerizzo)! - Require a Node.js runtime patched for CVE-2026-111497 (Brotli decoder out-of-bounds write): `^22.23.4 || ^24.22.1 || >=26.12.1`. Node.js 20 is end-of-life, never got the fix, and is no longer supported. The CLI decompresses Brotli-encoded HTTP responses through Node's bundled decoder, so upgrade Node.js if you are on an older release.
+
+- [#68](https://github.com/codacy/codacy-cloud-cli/pull/68) [`00b25d1`](https://github.com/codacy/codacy-cloud-cli/commit/00b25d1546916cc5b52ea237b439e774ece48f5e) Thanks [@alerizzo](https://github.com/alerizzo)! - New `file` command (alias `fl`): shows a file's grade, issues, complexity, duplication and coverage, its issues and clones, and its source code with a covered/not-covered gutter. Use `--lines <from-to>` to narrow the source or `--no-source` to hide it. With an auto-detected repository, the path can be relative to the current directory or absolute; a path outside the repository is refused.
+
+- [#66](https://github.com/codacy/codacy-cloud-cli/pull/66) [`454b436`](https://github.com/codacy/codacy-cloud-cli/commit/454b436bd881d02d92a949ac1b9c9519ac7fee42) Thanks [@alerizzo](https://github.com/alerizzo)! - `findings` can now narrow to container scanning: `--scan-types` accepts `ContainerSCA` (aliases `ContainerScanning` and `Container`), and the new `--image <name>` (or `name:tag`) and `--image-tag <tag>` options filter findings to one container image. Container findings show their image as `name:tag` in place of the repository, on both `findings` cards and the `finding` detail view, and include `imageName`/`imageTag` in `--output json`.
+
+### Patch Changes
+
+- [#67](https://github.com/codacy/codacy-cloud-cli/pull/67) [`5c056ee`](https://github.com/codacy/codacy-cloud-cli/commit/5c056ee296eb54cd76c018f2a894269439bb1429) Thanks [@alerizzo](https://github.com/alerizzo)! - Stored credentials now require the full 16-byte AES-GCM authentication tag. Previously a truncated tag (as short as 4 bytes) still verified, which weakened the integrity check on `~/.codacy/credentials`; existing credential files keep working because the CLI has always written full-length tags. Also tidies a handful of lint findings (unused imports, `??` over `||` for nullish defaults, typed `catch` parameters) and adds a `.codacy.yaml` so Codacy skips test files for ESLint and generated Markdown for markdownlint.
+
 ## 1.14.1
 
 ### Patch Changes
